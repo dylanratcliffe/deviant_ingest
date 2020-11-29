@@ -1,21 +1,43 @@
 package cmd
 
 import (
+	"fmt"
+	"github.com/dylanratcliffe/redacted_dgraph/ingest"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // ingestCmd represents the ingest command
 var ingestCmd = &cobra.Command{
 	Use:   "ingest",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Starts Ingesting items into DGraph",
+	Long: `
+TODO`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Connect to the NATS infrastructure
+		viper.SetDefault("nats.retries", 5)
+		viper.SetDefault("nats.timeout", 10)
 
+		urls := viper.GetStringSlice("nats.urls")
+
+		// Ensure that a NATS url was passed
+		if len(urls) == 0 {
+			panic("No nats.urls found, this is a required setting")
+		}
+
+		retries := viper.GetInt("nats.retries")
+		timeout := viper.GetInt("nats.timeout")
+
+		// Make the NATS connection
+		c := ingest.NewNATSConnection(
+			urls,
+			retries,
+			5,
+			timeout,
+		)
+
+		// Subscribe
+		fmt.Println(c)
 	},
 }
 
