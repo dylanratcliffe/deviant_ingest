@@ -1,14 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"log"
-
-	"github.com/dgraph-io/dgo"
-	"github.com/dgraph-io/dgo/protos/api"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding/gzip"
 )
 
 // ingestCmd represents the ingest command
@@ -22,22 +15,6 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Dial a gRPC connection. The address to dial to can be configured when
-		// setting up the dgraph cluster.
-		dialOpts := append([]grpc.DialOption{},
-			grpc.WithInsecure(),
-			grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)))
-		d, err := grpc.Dial("localhost:9080", dialOpts...)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		client := dgo.NewDgraphClient(
-			api.NewDgraphClient(d),
-		)
-
-		fmt.Println(client)
 
 	},
 }

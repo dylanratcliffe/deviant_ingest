@@ -1,7 +1,10 @@
 {
     "cSpell.words": [
+        "NATS",
+        "cond",
         "dgraph",
         "grpc",
+        "microservices",
         "mitchellh",
         "protos"
     ]
