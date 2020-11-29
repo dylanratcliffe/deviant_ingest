@@ -1,15 +1,13 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/dgraph-io/dgo"
-	"github.com/dgraph-io/dgo/protos/api"
+	"github.com/dgraph-io/dgo/v200"
+	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
@@ -25,8 +23,13 @@ func (d *DGraph) InsertAllHandler(msg *nats.Msg) {
 
 }
 
-func newDGraphClient(hostname string, port int) *dgo.Dgraph {
+// NewDGraphClient Create a dgraph client connection
+func NewDGraphClient(hostname string, port int) *dgo.Dgraph {
 	address := fmt.Sprintf("%v:%v", hostname, port)
+
+	log.WithFields(log.Fields{
+		"address": address,
+	}).Info("Connecting to DGraph")
 
 	// Dial a gRPC connection. The address to dial to can be configured when
 	// setting up the dgraph cluster.
@@ -39,64 +42,47 @@ func newDGraphClient(hostname string, port int) *dgo.Dgraph {
 		log.Fatal(err)
 	}
 
+	log.WithFields(log.Fields{
+		"state": d.GetState().String(),
+	}).Info("Connected to DGraph")
+
 	return dgo.NewDgraphClient(
 		api.NewDgraphClient(d),
 	)
 }
 
-// ConnectToNats connects to a given NATS URL, it also support retries. Servers should be supplied as a slice of URLs e.g.
-//
-// engine.ConnectToNats([]string{"nats://127.0.0.1:1222", "nats://127.0.0.1:1223"},	5, 5)
-//
-func newNATSConnection(urls []string, retries int, timeout int) *nats.Conn {
-	var tries int
-	var servers string
-	var hostname string
-	var timeoutDuration time.Duration
+// Schema Stores the overall schema. I'm sure this is a bad way to do thinks
+// from a future compatability perspective...
+var Schema = `
+type Item {
+	Type
+	UniqueAttribute
+	UniqueAttributeValue
+	GloballyUniqueName
+	Attributes
+	LinkedItems
+	Metadata
+}
 
-	// Set default values
-	if retries == 0 {
-		retries = 10
+Type: string @index(hash) .
+UniqueAttribute: string @index(hash) .
+UniqueAttributeValue: string @index(hash) .
+GloballyUniqueName: string @index(hash) .
+Attributes: uid .
+Metadata: uid .
+LinkedItems: [uid] @reverse .
+`
+
+// SetupSchemas Will create the schemas required for ingest to work. This will
+// need to be run before anything can actually be inserted into the database
+func SetupSchemas(dg *dgo.Dgraph) error {
+	var operation *api.Operation
+
+	operation = &api.Operation{
+		Schema: Schema,
 	}
 
-	if timeout == 0 {
-		timeoutDuration = 10 * time.Second
-	} else {
-		timeoutDuration = time.Duration(timeout) * time.Second
+	err := dg.Alter(context.Background(), operation)
 
-	}
-
-	// Get the hostname to use as the connection name
-	hostname, _ = os.Hostname()
-
-	servers = strings.Join(urls, ",")
-
-	// Loop until we have a connection
-	for tries <= retries {
-		log.WithFields(log.Fields{
-			"servers": servers,
-		}).Info("Connecting to NATS")
-
-		// TODO: Make these options more configurable
-		// https://docs.nats.io/developing-with-nats/connecting/pingpong
-		nc, err := nats.Connect(
-			servers,                       // The servers to connect to
-			nats.Name(hostname),           // The connection name
-			nats.Timeout(timeoutDuration), // Connection timeout (per server)
-		)
-
-		if err == nil {
-			return nc
-		}
-
-		// Increment tries
-		tries++
-
-		log.WithFields(log.Fields{
-			"servers": servers,
-			"err":     err,
-		}).Info("Connection failed")
-	}
-
-	panic("Could not connect to NATS, giving up")
+	return err
 }

@@ -9,16 +9,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Connection represents a NATS connection
-type Connection struct {
-	NC *nats.Conn
-}
-
 // NewNATSConnection connects to a given NATS URL, it also support retries. Servers should be supplied as a slice of URLs e.g.
 //
 // link.NewNATSConnection([]string{"nats://127.0.0.1:1222", "nats://127.0.0.1:1223"},	5, 5)
 //
-func NewNATSConnection(urls []string, retries int, sleep int, timeout int) Connection {
+func NewNATSConnection(urls []string, retries int, sleep int, timeout int) *nats.Conn {
 	var tries int
 	var servers string
 	var hostname string
@@ -64,9 +59,7 @@ func NewNATSConnection(urls []string, retries int, sleep int, timeout int) Conne
 				"URL":      nc.ConnectedUrl(),
 			}).Info("Connected to server")
 
-			return Connection{
-				NC: nc,
-			}
+			return nc
 		}
 
 		// if retries is 0 then we loop forever

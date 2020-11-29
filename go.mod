@@ -3,7 +3,7 @@ module github.com/dylanratcliffe/redacted_dgraph
 go 1.15
 
 require (
-	github.com/dgraph-io/dgo v1.0.0
+	github.com/dgraph-io/dgo/v200 v200.0.0-20201023081658-a9ad93fe6ebd
 	github.com/dylanratcliffe/sdp v0.0.0-20201129161315-fe0745128fbb
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/magiconair/properties v1.8.4 // indirect

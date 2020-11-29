@@ -1,27 +1,27 @@
 package ingest
 
 import (
+	"github.com/dgraph-io/dgo/v200"
 	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
-// MessageHandler handles NATS messages by resolving their links then posting
-// the resolved itm to the OutputSubject
-func (c *Connection) MessageHandler(msg *nats.Msg) {
-	item := &sdp.Item{}
+// NewUpsertHandler CReates a NATS message handler that upserts items into the given database
+func NewUpsertHandler(dgraph *dgo.Dgraph) func(*nats.Msg) {
+	return func(msg *nats.Msg) {
+		item := &sdp.Item{}
 
-	proto.Unmarshal(msg.Data, item)
+		err := proto.Unmarshal(msg.Data, item)
 
-	log.WithFields(log.Fields{
-		"type":                  item.GetType(),
-		"numLinkedItemRequests": len(item.GetLinkedItemRequests()),
-	}).Debug("Processing item")
+		if err != nil {
+			return
+		}
 
-	// Send back onto the output subject
-	c.NC.Publish(
-		"TODO subject",
-		[]byte{},
-	)
+		log.WithFields(log.Fields{
+			"type":                  item.GetType(),
+			"numLinkedItemRequests": len(item.GetLinkedItemRequests()),
+		}).Debug("Processing item")
+	}
 }

@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/dylanratcliffe/redacted_dgraph/ingest"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -14,9 +17,12 @@ var ingestCmd = &cobra.Command{
 	Long: `
 TODO`,
 	Run: func(cmd *cobra.Command, args []string) {
+		var err error
+
 		// Connect to the NATS infrastructure
 		viper.SetDefault("nats.retries", 5)
 		viper.SetDefault("nats.timeout", 10)
+		viper.SetDefault("nats.urls", []string{"localhost"})
 
 		urls := viper.GetStringSlice("nats.urls")
 
@@ -29,15 +35,56 @@ TODO`,
 		timeout := viper.GetInt("nats.timeout")
 
 		// Make the NATS connection
-		c := ingest.NewNATSConnection(
+		nc := ingest.NewNATSConnection(
 			urls,
 			retries,
 			5,
 			timeout,
 		)
 
+		viper.SetDefault("dgraph.host", "localhost")
+		viper.SetDefault("dgraph.port", 9080)
+		dgHost := viper.GetString("dgraph.host")
+		dgPort := viper.GetInt("dgraph.port")
+
+		// Make the dgraph connection
+		dg := ingest.NewDGraphClient(dgHost, dgPort)
+
+		log.Info("Setting up initial schemas")
+
+		// Ensure that the schema exists
+		err = ingest.SetupSchemas(dg)
+
+		if err != nil {
+			log.WithFields(log.Fields{
+				"schemas": ingest.Schema,
+				"error":   err,
+			}).Fatal("Failed to set up initial schemas")
+		}
+
 		// Subscribe
-		fmt.Println(c)
+		queueName := strings.Join([]string{
+			"ingest",
+			dgHost,
+			fmt.Sprint(dgPort),
+		},
+			".",
+		)
+		subject := "items.>"
+
+		log.WithFields(log.Fields{
+			"subject":   subject,
+			"queueName": queueName,
+		}).Info("Subscribing to item queue")
+
+		sub, err := nc.QueueSubscribe(subject, queueName, ingest.NewUpsertHandler(dg))
+		defer sub.Drain()
+
+		if err != nil {
+			log.Error(err)
+		}
+
+		select {}
 	},
 }
 
