@@ -7,10 +7,13 @@ import (
 	"github.com/spf13/cobra"
 
 	homedir "github.com/mitchellh/go-homedir"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/spf13/viper"
 )
 
 var cfgFile string
+var logLevel string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -39,6 +42,16 @@ func init() {
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.redacted_dgraph.yaml)")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log", "info", "Set the log level. Valid values: panic, fatal, error, warn, info, debug, trace")
+
+	// Run this before we do anything to set up the loglevel
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		if lvl, err := log.ParseLevel(logLevel); err == nil {
+			log.SetLevel(lvl)
+		} else {
+			log.SetLevel(log.InfoLevel)
+		}
+	}
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -67,6 +80,6 @@ func initConfig() {
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
+		log.Debugf("Using config file: %v", viper.ConfigFileUsed())
 	}
 }
