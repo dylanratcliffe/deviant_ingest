@@ -7,6 +7,11 @@
 
 version: "3.2"
 services:
+  nats:
+    image: nats:latest
+    ports:
+      - "8222:8222"
+      - "4222:4222"
   zero:
     image: dgraph/dgraph:latest
     volumes:
