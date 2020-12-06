@@ -109,6 +109,10 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 
 		if err != nil {
 			errFields["err"] = err
+
+			bytes, _ := req.Marshal()
+			errFields["request"] = string(bytes)
+
 			log.WithFields(errFields).Error("Error during database upsert")
 
 			debugChannel <- UpsertResult{

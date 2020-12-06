@@ -69,7 +69,6 @@ type Item {
 	UniqueAttributeValue
 	GloballyUniqueName
 	Attributes
-	LinkedItems
 	Metadata
 }
 
@@ -132,7 +131,7 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 
 	return []*api.Mutation{
 		{
-			Cond:    fmt.Sprintf("@if(eq(len(%v.item), 0))", i.item.GloballyUniqueName()),
+			Cond:    "@if(eq(len(item.item), 0))",
 			SetJson: itemJSON,
 		},
 		{
@@ -153,10 +152,16 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 		DType                string `json:"dgraph.type,omitempty"`
 		UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
 		GloballyUniqueName   string `json:"GloballyUniqueName,omitempty"`
+		Attributes           string `json:"Attributes,omptempty"`
+		Metadata             string `json:"Metadata,omptempty"`
+		// LinkedItems          string `json:"LinkedItems"`
 		Alias
 	}{
-		UID:                  fmt.Sprintf("uid(%v.item)", i.item.GloballyUniqueName()),
-		DType:                "item",
+		// TODO: Add handling of linked items
+		UID:                  "uid(item.item)",
+		Attributes:           "uid(item.attributes)",
+		Metadata:             "uid(item.metadata)",
+		DType:                "Item",
 		UniqueAttributeValue: i.item.UniqueAttributeValue(),
 		GloballyUniqueName:   i.item.GloballyUniqueName(),
 		Alias:                (Alias)(i),
@@ -182,10 +187,10 @@ func (i *ItemNode) Query() string {
 
 	lines = make([]string, 7)
 	lines[0] = "{"
-	lines[1] = fmt.Sprintf("  %v(func: eq(GloballyUniqueName, \"%v\")) {", gun, gun)
-	lines[2] = fmt.Sprintf("    %v.item as uid", gun)
-	lines[3] = fmt.Sprintf("    %v.attributes as Attributes", gun)
-	lines[4] = fmt.Sprintf("    %v.metadata as Metadata", gun)
+	lines[1] = fmt.Sprintf("  item(func: eq(GloballyUniqueName, \"%v\")) {", gun)
+	lines[2] = "    item.item as uid"
+	lines[3] = "    item.attributes as Attributes"
+	lines[4] = "    item.metadata as Metadata"
 	lines[5] = "  }"
 	lines[6] = "}"
 
@@ -212,7 +217,7 @@ func (i MetadataNode) MarshalJSON() ([]byte, error) {
 		DType string `json:"dgraph.type,omitempty"`
 		Alias
 	}{
-		UID:   fmt.Sprintf("uid(%v.metadata)", i.item.GloballyUniqueName()),
+		UID:   "uid(item.metadata)",
 		DType: "itemMetadata",
 		Alias: (Alias)(i),
 	})
@@ -248,7 +253,7 @@ func (a Attributes) MarshalJSON() ([]byte, error) {
 
 	// Append the dgraph type and UID
 	newMap["dgraph.type"] = fmt.Sprintf("%vAttributes", a.item.GetType())
-	newMap["uid"] = fmt.Sprintf("uid(%v.attributes)", a.item.GloballyUniqueName())
+	newMap["uid"] = "uid(item.attributes)"
 
 	return json.Marshal(newMap)
 }

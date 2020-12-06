@@ -15,7 +15,7 @@ import (
 var goodAttributes, _ = sdp.ToAttributes(map[string]interface{}{
 	"type":         "couch",
 	"colour":       "black",
-	"serialNumber": "982734928347",
+	"serialNumber": "98273492834-7",
 })
 
 var goodItem = &sdp.Item{
