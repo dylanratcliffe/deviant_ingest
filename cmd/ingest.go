@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dylanratcliffe/redacted_dgraph/ingest"
 	log "github.com/sirupsen/logrus"
@@ -44,11 +45,19 @@ TODO`,
 
 		viper.SetDefault("dgraph.host", "localhost")
 		viper.SetDefault("dgraph.port", 9080)
+		viper.SetDefault("dgraph.connectionTimeout", "5s")
 		dgHost := viper.GetString("dgraph.host")
+		dgTimeout := viper.GetString("dgraph.connectionTimeout")
 		dgPort := viper.GetInt("dgraph.port")
 
+		t, _ := time.ParseDuration(dgTimeout)
+
 		// Make the dgraph connection
-		dg := ingest.NewDGraphClient(dgHost, dgPort)
+		dg, err := ingest.NewDGraphClient(dgHost, dgPort, t)
+
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		log.Info("Setting up initial schemas")
 
@@ -77,7 +86,16 @@ TODO`,
 			"queueName": queueName,
 		}).Info("Subscribing to item queue")
 
-		sub, err := nc.QueueSubscribe(subject, queueName, ingest.NewUpsertHandler(dg))
+		// We dont' want to do anything with the debugging info so discard it
+		dc := make(chan ingest.UpsertResult)
+
+		go func() {
+			for range dc {
+				// Do nothing with the results
+			}
+		}()
+
+		sub, err := nc.QueueSubscribe(subject, queueName, ingest.NewUpsertHandler(dg, dc))
 		defer sub.Drain()
 
 		if err != nil {

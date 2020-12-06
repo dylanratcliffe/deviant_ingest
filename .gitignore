@@ -1,3 +1,4 @@
 Gopkg.lock
 vendor
 go.sum
+__debug_bin

@@ -28,7 +28,9 @@ func (d *DGraph) InsertAllHandler(msg *nats.Msg) {
 }
 
 // NewDGraphClient Create a dgraph client connection
-func NewDGraphClient(hostname string, port int) *dgo.Dgraph {
+func NewDGraphClient(hostname string, port int, connectTimeout time.Duration) (*dgo.Dgraph, error) {
+	var dc *dgo.Dgraph
+
 	address := fmt.Sprintf("%v:%v", hostname, port)
 
 	log.WithFields(log.Fields{
@@ -39,11 +41,14 @@ func NewDGraphClient(hostname string, port int) *dgo.Dgraph {
 	// setting up the dgraph cluster.
 	dialOpts := append([]grpc.DialOption{},
 		grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)))
+		grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)),
+		grpc.WithBlock(),
+		grpc.WithTimeout(connectTimeout),
+	)
 	d, err := grpc.Dial(address, dialOpts...)
 
 	if err != nil {
-		log.Fatal(err)
+		return dc, err
 	}
 
 	log.WithFields(log.Fields{
@@ -52,7 +57,7 @@ func NewDGraphClient(hostname string, port int) *dgo.Dgraph {
 
 	return dgo.NewDgraphClient(
 		api.NewDgraphClient(d),
-	)
+	), nil
 }
 
 // Schema Stores the overall schema. I'm sure this is a bad way to do thinks

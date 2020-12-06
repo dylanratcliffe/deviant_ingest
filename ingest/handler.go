@@ -14,8 +14,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// UpsertResult Represents the result of handling an upsert
+type UpsertResult struct {
+	Respose *api.Response
+	Error   error
+}
+
 // NewUpsertHandler CReates a NATS message handler that upserts items into the given database
-func NewUpsertHandler(dgraph *dgo.Dgraph) func(*nats.Msg) {
+func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*nats.Msg) {
 	return func(msg *nats.Msg) {
 		var item *sdp.Item
 		var itemNode ItemNode
@@ -48,6 +54,10 @@ func NewUpsertHandler(dgraph *dgo.Dgraph) func(*nats.Msg) {
 		err = proto.Unmarshal(msg.Data, item)
 
 		if err != nil {
+			debugChannel <- UpsertResult{
+				Respose: nil,
+				Error:   err,
+			}
 			return
 		}
 
@@ -112,6 +122,11 @@ func NewUpsertHandler(dgraph *dgo.Dgraph) func(*nats.Msg) {
 			errFields["err"] = err
 			log.WithFields(errFields).Error("Item JSON Marshal failed before database insertion")
 
+			debugChannel <- UpsertResult{
+				Respose: nil,
+				Error:   err,
+			}
+
 			return
 		}
 
@@ -119,12 +134,21 @@ func NewUpsertHandler(dgraph *dgo.Dgraph) func(*nats.Msg) {
 			SetJson: b,
 		}
 
+		log.WithFields(log.Fields{
+			"json": string(b),
+		}).Debug("Executing upsert")
+
 		// Execute the mutation
 		res, err = txn.Mutate(ctx, mu)
 
 		if err != nil {
 			errFields["err"] = err
 			log.WithFields(errFields).Error("Error during upsert of item into database")
+
+			debugChannel <- UpsertResult{
+				Respose: nil,
+				Error:   err,
+			}
 
 			return
 		}
@@ -141,11 +165,21 @@ func NewUpsertHandler(dgraph *dgo.Dgraph) func(*nats.Msg) {
 			errFields["err"] = err
 			log.WithFields(errFields).Error("Error during database transaction commit")
 
+			debugChannel <- UpsertResult{
+				Respose: nil,
+				Error:   err,
+			}
+
 			return
 		}
 
 		log.WithFields(log.Fields{
 			"itemGloballyUniqueName": item.GloballyUniqueName(),
 		}).Error("Commit complete")
+
+		debugChannel <- UpsertResult{
+			Respose: res,
+			Error:   nil,
+		}
 	}
 }
