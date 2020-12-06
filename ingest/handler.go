@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
@@ -26,12 +25,10 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 	return func(msg *nats.Msg) {
 		var item *sdp.Item
 		var itemNode ItemNode
-		var itemUpsert Upsert
-		var txn *dgo.Txn
+		var req *api.Request
 		var mu *api.Mutation
 		var res *api.Response
 		var err error
-		var b []byte
 		var ctx context.Context
 		var cancel context.CancelFunc
 		var timeout time.Duration
@@ -100,49 +97,19 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 			"attributes":             itemNode.Attrributes,
 		}
 
-		// Create a transaction
-		txn = dgraph.NewTxn()
-
-		// Defer cancel of the transaction. This means that if there is an
-		// unhandled exception it will cleanly cancel the transaction. If the
-		// transaction has already been committed then the discard won't do
-		// anything
-		defer txn.Discard(context.Background())
-
-		// Create the mutation
-		itemUpsert = Upsert{
-			Query:     "{" + itemNode.Query() + "}",
-			Mutations: itemNode.Mutations(),
+		req = &api.Request{
+			CommitNow: true,
 		}
 
-		// Convert to JSON
-		b, err = json.Marshal(itemUpsert)
+		req.Query = itemNode.Query()
+		req.Mutations = itemNode.Mutations()
+
+		// Execute the upsert request
+		res, err = dgraph.NewTxn().Do(ctx, req)
 
 		if err != nil {
 			errFields["err"] = err
-			log.WithFields(errFields).Error("Item JSON Marshal failed before database insertion")
-
-			debugChannel <- UpsertResult{
-				Error: err,
-			}
-
-			return
-		}
-
-		mu = &api.Mutation{
-			SetJson: b,
-		}
-
-		log.WithFields(log.Fields{
-			"json": string(b),
-		}).Debug("Executing upsert")
-
-		// Execute the mutation
-		res, err = txn.Mutate(ctx, mu)
-
-		if err != nil {
-			errFields["err"] = err
-			log.WithFields(errFields).Error("Error during upsert of item into database")
+			log.WithFields(errFields).Error("Error during database upsert")
 
 			debugChannel <- UpsertResult{
 				Respose:  res,
@@ -157,26 +124,6 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 			"latency": res.GetLatency(),
 			"metrics": res.GetMetrics(),
 		}).Debug("Upsert complete")
-
-		// Commit the transaction
-		err = txn.Commit(ctx)
-
-		if err != nil {
-			errFields["err"] = err
-			log.WithFields(errFields).Error("Error during database transaction commit")
-
-			debugChannel <- UpsertResult{
-				Respose:  res,
-				Mutation: mu,
-				Error:    err,
-			}
-
-			return
-		}
-
-		log.WithFields(log.Fields{
-			"itemGloballyUniqueName": item.GloballyUniqueName(),
-		}).Error("Commit complete")
 
 		debugChannel <- UpsertResult{
 			Respose:  res,

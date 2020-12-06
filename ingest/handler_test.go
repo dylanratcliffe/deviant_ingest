@@ -97,5 +97,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 			t.Error(result.Error)
 		}
+
+		t.Log(string(result.Respose.Json))
 	})
 }

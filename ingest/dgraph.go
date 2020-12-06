@@ -112,20 +112,6 @@ func SetupSchemas(dg *dgo.Dgraph) error {
 	return err
 }
 
-// Upsert Models an upsert action. Can be converted to JSON and executed
-// directly
-type Upsert struct {
-	Query     string      `json:"query,omitempty"`
-	Mutations []*Mutation `json:"mutations,omitempty"`
-}
-
-// Mutation represents an individual mutation to be made as part of an upsert.
-// It can optionally have its own condiition
-type Mutation struct {
-	Condition string        `json:"cond,omitempty"`
-	Set       []interface{} `json:"set,omitempty"`
-}
-
 // ItemNode Represents an item, it also is able to return a full list of
 // muatations
 type ItemNode struct {
@@ -139,24 +125,21 @@ type ItemNode struct {
 }
 
 // Mutations Returns a list of mutations that can be
-func (i *ItemNode) Mutations() []*Mutation {
-	return []*Mutation{
-		// Create the item if it's not there
-		{
-			Condition: fmt.Sprintf("@if(eq(len(%v.item), 0))", i.item.GloballyUniqueName()),
-			Set: []interface{}{
-				i,
-			},
-		},
-		// TODO: Add a mutation where we update the linked items regardless
+func (i *ItemNode) Mutations() []*api.Mutation {
+	itemJSON, _ := json.Marshal(i)
+	attributesJSON, _ := json.Marshal(i.Attrributes)
+	metadataJSON, _ := json.Marshal(i.Metadata)
 
-		// Update the attributes & metadata. There is no condition here since we
-		// want to make sure this is up to date regardless
+	return []*api.Mutation{
 		{
-			Set: []interface{}{
-				i.Attrributes,
-				i.Metadata,
-			},
+			Cond:    fmt.Sprintf("@if(eq(len(%v.item), 0))", i.item.GloballyUniqueName()),
+			SetJson: itemJSON,
+		},
+		{
+			SetJson: attributesJSON,
+		},
+		{
+			SetJson: metadataJSON,
 		},
 	}
 }
@@ -197,12 +180,14 @@ func (i *ItemNode) Query() string {
 
 	gun = i.item.GloballyUniqueName()
 
-	lines = make([]string, 5)
-	lines[0] = fmt.Sprintf("%v(func: eq(GloballyUniqueName, \"%v\")) {", gun, gun)
-	lines[1] = fmt.Sprintf("  %v.item as uid", gun)
-	lines[2] = fmt.Sprintf("  %v.attributes as Attributes", gun)
-	lines[3] = fmt.Sprintf("  %v.metadata as Metadata", gun)
-	lines[4] = "}"
+	lines = make([]string, 7)
+	lines[0] = "{"
+	lines[1] = fmt.Sprintf("  %v(func: eq(GloballyUniqueName, \"%v\")) {", gun, gun)
+	lines[2] = fmt.Sprintf("    %v.item as uid", gun)
+	lines[3] = fmt.Sprintf("    %v.attributes as Attributes", gun)
+	lines[4] = fmt.Sprintf("    %v.metadata as Metadata", gun)
+	lines[5] = "  }"
+	lines[6] = "}"
 
 	return strings.Join(lines, "\n")
 }
