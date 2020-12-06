@@ -87,6 +87,14 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		result = <-debugChannel
 
 		if result.Error != nil {
+			if result.Mutation != nil {
+				t.Log(string(result.Mutation.GetSetJson()))
+			}
+
+			if result.Respose != nil {
+				t.Log(string(result.Respose.GetJson()))
+			}
+
 			t.Error(result.Error)
 		}
 	})
