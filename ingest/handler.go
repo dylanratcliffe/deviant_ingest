@@ -15,9 +15,9 @@ import (
 
 // UpsertResult Represents the result of handling an upsert
 type UpsertResult struct {
-	Respose  *api.Response
-	Mutation *api.Mutation
-	Error    error
+	Request *api.Request
+	Respose *api.Response
+	Error   error
 }
 
 // NewUpsertHandler CReates a NATS message handler that upserts items into the given database
@@ -26,7 +26,6 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 		var item *sdp.Item
 		var itemNode ItemNode
 		var req *api.Request
-		var mu *api.Mutation
 		var res *api.Response
 		var err error
 		var ctx context.Context
@@ -82,7 +81,8 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 				Map:  item.GetAttributes().GetAttrStruct().AsMap(),
 				item: item,
 			},
-			item: item,
+			LinkedItems: item.GetLinkedItems(),
+			item:        item,
 		}
 
 		// Store logs for later
@@ -116,9 +116,9 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 			log.WithFields(errFields).Error("Error during database upsert")
 
 			debugChannel <- UpsertResult{
-				Respose:  res,
-				Mutation: mu,
-				Error:    err,
+				Request: req,
+				Respose: res,
+				Error:   err,
 			}
 
 			return
@@ -130,9 +130,9 @@ func NewUpsertHandler(dgraph *dgo.Dgraph, debugChannel chan UpsertResult) func(*
 		}).Debug("Upsert complete")
 
 		debugChannel <- UpsertResult{
-			Respose:  res,
-			Mutation: mu,
-			Error:    nil,
+			Request: req,
+			Respose: res,
+			Error:   nil,
 		}
 	}
 }

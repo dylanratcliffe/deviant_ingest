@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/dgraph-io/dgo/v200 v200.0.0-20201023081658-a9ad93fe6ebd
-	github.com/dylanratcliffe/sdp v0.0.0-20201129161315-fe0745128fbb
+	github.com/dylanratcliffe/sdp v0.0.0-20201206192016-bd9c1c35db5e
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/magiconair/properties v1.8.4 // indirect

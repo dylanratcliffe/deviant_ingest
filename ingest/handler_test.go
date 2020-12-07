@@ -12,15 +12,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var goodAttributes, _ = sdp.ToAttributes(map[string]interface{}{
+var couchAttributes, _ = sdp.ToAttributes(map[string]interface{}{
 	"type":         "couch",
 	"colour":       "black",
 	"serialNumber": "98273492834-7",
 })
 
-var goodItem = &sdp.Item{
+var couch = &sdp.Item{
 	Context:         "home",
-	Attributes:      goodAttributes,
+	Attributes:      couchAttributes,
 	Type:            "furniture",
 	UniqueAttribute: "serialNumber",
 	Metadata: &sdp.Metadata{
@@ -34,22 +34,65 @@ var goodItem = &sdp.Item{
 	LinkedItems: []*sdp.Reference{
 		{
 			Type:                 "furniture",
-			UniqueAttributeValue: "coffee_table",
+			UniqueAttributeValue: "CTB-54",
 			Context:              "house1",
 		},
 	},
 }
 
-var goodData, _ = proto.Marshal(goodItem)
+var couchData, _ = proto.Marshal(couch)
 
-var goodMessage = &nats.Msg{
-	Subject: "items.house1",
-	Reply:   "replysubject",
-	Sub: &nats.Subscription{
-		Subject: "items.house1",
-		Queue:   "q",
+var coffeeTableAttributes, _ = sdp.ToAttributes(map[string]interface{}{
+	"type":         "coffee_table",
+	"colour":       "wood",
+	"serialNumber": "CTB-54",
+})
+
+var coffeeTable = &sdp.Item{
+	Context:         "home",
+	Attributes:      coffeeTableAttributes,
+	Type:            "furniture",
+	UniqueAttribute: "serialNumber",
+	Metadata: &sdp.Metadata{
+		BackendName:            "test",
+		BackendDuration:        durationpb.New(time.Millisecond),
+		BackendDurationPerItem: durationpb.New(time.Millisecond),
+		BackendPackage:         "test-package",
+		RequestMethod:          sdp.RequestMethod_FIND,
+		Timestamp:              timestamppb.Now(),
 	},
-	Data: goodData,
+}
+
+var coffeeTableData, _ = proto.Marshal(coffeeTable)
+
+var testMessages = []*nats.Msg{
+	{
+		Subject: "items.house1",
+		Reply:   "replysubject",
+		Sub: &nats.Subscription{
+			Subject: "items.house1",
+			Queue:   "q",
+		},
+		Data: couchData,
+	},
+	{
+		Subject: "items.house1",
+		Reply:   "replysubject",
+		Sub: &nats.Subscription{
+			Subject: "items.house1",
+			Queue:   "q",
+		},
+		Data: coffeeTableData,
+	},
+	{
+		Subject: "items.house1",
+		Reply:   "replysubject",
+		Sub: &nats.Subscription{
+			Subject: "items.house1",
+			Queue:   "q",
+		},
+		Data: couchData,
+	},
 }
 
 // TestNewUpsertHandlerDgraph Runs an acceptance test against a real dgraph
@@ -73,31 +116,34 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		t.Skip(err)
 	}
 
-	t.Run("Handling an item", func(t *testing.T) {
-		var debugChannel chan UpsertResult
-		var handle nats.MsgHandler
-		var result UpsertResult
+	for _, message := range testMessages {
+		t.Run("Handling an item", func(t *testing.T) {
+			var debugChannel chan UpsertResult
+			var handle nats.MsgHandler
+			var result UpsertResult
 
-		debugChannel = make(chan UpsertResult)
-		handle = NewUpsertHandler(d, debugChannel)
+			debugChannel = make(chan UpsertResult)
+			handle = NewUpsertHandler(d, debugChannel)
 
-		go handle(goodMessage)
+			go handle(message)
 
-		// Read the result from the debug channel
-		result = <-debugChannel
+			// Read the result from the debug channel
+			result = <-debugChannel
 
-		if result.Error != nil {
-			if result.Mutation != nil {
-				t.Log(string(result.Mutation.GetSetJson()))
+			if result.Error != nil {
+				if result.Request != nil {
+					t.Log(string(result.Request.String()))
+				}
+
+				if result.Respose != nil {
+					t.Log(string(result.Respose.GetJson()))
+				}
+
+				t.Error(result.Error)
 			}
 
-			if result.Respose != nil {
-				t.Log(string(result.Respose.GetJson()))
-			}
-
-			t.Error(result.Error)
-		}
-
-		t.Log(string(result.Respose.Json))
-	})
+			t.Log(string(result.Request.String()))
+			t.Log(string(result.Respose.Json))
+		})
+	}
 }

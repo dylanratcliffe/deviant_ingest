@@ -70,6 +70,7 @@ type Item {
 	GloballyUniqueName
 	Attributes
 	Metadata
+	LinkedItems
 }
 
 Type: string @index(hash) .
@@ -114,24 +115,26 @@ func SetupSchemas(dg *dgo.Dgraph) error {
 // ItemNode Represents an item, it also is able to return a full list of
 // muatations
 type ItemNode struct {
-	Type            string       `json:"Type,omitempty"`
-	UniqueAttribute string       `json:"UniqueAttribute,omitempty"`
-	Context         string       `json:"Context,omitempty"`
-	Metadata        MetadataNode `json:"Metadata,omitempty"`
-	Attrributes     Attributes   `json:"-"`
-	// LinkedItems     []LinkedItem `json:"-"`
-	item *sdp.Item `json:"-"`
+	Type            string           `json:"Type,omitempty"`
+	UniqueAttribute string           `json:"UniqueAttribute,omitempty"`
+	Context         string           `json:"Context,omitempty"`
+	Metadata        MetadataNode     `json:"Metadata,omitempty"`
+	Attrributes     Attributes       `json:"-"`
+	LinkedItems     []*sdp.Reference `json:"-"`
+	item            *sdp.Item        `json:"-"`
 }
 
 // Mutations Returns a list of mutations that can be
 func (i *ItemNode) Mutations() []*api.Mutation {
+	var mutations []*api.Mutation
+
 	itemJSON, _ := json.Marshal(i)
 	attributesJSON, _ := json.Marshal(i.Attrributes)
 	metadataJSON, _ := json.Marshal(i.Metadata)
 
-	return []*api.Mutation{
+	// Initial mutations to create the item and its attributes and metadata
+	mutations = []*api.Mutation{
 		{
-			Cond:    "@if(eq(len(item.item), 0))",
 			SetJson: itemJSON,
 		},
 		{
@@ -141,27 +144,54 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 			SetJson: metadataJSON,
 		},
 	}
+
+	for index, li := range i.LinkedItems {
+		liJSON, err := json.Marshal(map[string]string{
+			"uid":                fmt.Sprintf("uid(linkedItem%v.item)", index),
+			"GloballyUniqueName": li.GloballyUniqueName(),
+		})
+
+		if err == nil {
+			// Insert a placeholder for the linked item if it doesn't already exist.
+			// This placeholder will be replaced with the actual item once it
+			// arrives
+			mutations = append(mutations, &api.Mutation{
+				Cond:    fmt.Sprintf("@if(eq(len(linkedItem%v.item), 0))", index),
+				SetJson: liJSON,
+			})
+		}
+	}
+
+	return mutations
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
 // required for DGraph
 func (i ItemNode) MarshalJSON() ([]byte, error) {
+	var li []string
+
+	// Create the linked items
+	for index := range i.LinkedItems {
+		// This refers to a variable that was created duing the initial query
+		li = append(li, fmt.Sprintf("uid(linkedItem%v.item)", index))
+	}
+
 	type Alias ItemNode
 	return json.Marshal(&struct {
-		UID                  string `json:"uid"`
-		DType                string `json:"dgraph.type,omitempty"`
-		UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
-		GloballyUniqueName   string `json:"GloballyUniqueName,omitempty"`
-		Attributes           string `json:"Attributes,omptempty"`
-		Metadata             string `json:"Metadata,omptempty"`
-		// LinkedItems          string `json:"LinkedItems"`
+		UID                  string   `json:"uid"`
+		DType                string   `json:"dgraph.type,omitempty"`
+		UniqueAttributeValue string   `json:"UniqueAttributeValue,omitempty"`
+		GloballyUniqueName   string   `json:"GloballyUniqueName,omitempty"`
+		Attributes           string   `json:"Attributes,omptempty"`
+		Metadata             string   `json:"Metadata,omptempty"`
+		LinkedItems          []string `json:"LinkedItems"`
 		Alias
 	}{
-		// TODO: Add handling of linked items
 		UID:                  "uid(item.item)",
 		Attributes:           "uid(item.attributes)",
 		Metadata:             "uid(item.metadata)",
 		DType:                "Item",
+		LinkedItems:          li,
 		UniqueAttributeValue: i.item.UniqueAttributeValue(),
 		GloballyUniqueName:   i.item.GloballyUniqueName(),
 		Alias:                (Alias)(i),
@@ -180,21 +210,29 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 //   * `{GloballyUniqueName}.attributes`: UID of this item's attributes
 //   * `{GloballyUniqueName}.metadata`: UID of this item's metadata
 func (i *ItemNode) Query() string {
-	var lines []string
-	var gun string
+	var query string
 
-	gun = i.item.GloballyUniqueName()
+	// Query for the its own UID and the UIDs of the attributes and metadata
+	query = fmt.Sprintf(`
+		item(func: eq(GloballyUniqueName, "%v")) {
+			item.item as uid
+			item.attributes as Attributes
+			item.metadata as Metadata
+		}
+	`, i.item.GloballyUniqueName())
 
-	lines = make([]string, 7)
-	lines[0] = "{"
-	lines[1] = fmt.Sprintf("  item(func: eq(GloballyUniqueName, \"%v\")) {", gun)
-	lines[2] = "    item.item as uid"
-	lines[3] = "    item.attributes as Attributes"
-	lines[4] = "    item.metadata as Metadata"
-	lines[5] = "  }"
-	lines[6] = "}"
+	// Add subsequent queries for linked items
+	for index, linkedItem := range i.item.LinkedItems {
+		q := fmt.Sprintf(`
+			linkedItem%v(func: eq(GloballyUniqueName, "%v")) {
+				linkedItem%v.item as uid
+			}
+		`, index, linkedItem.GloballyUniqueName(), index)
 
-	return strings.Join(lines, "\n")
+		query = query + "\n" + q
+	}
+
+	return ("{" + query + "}")
 }
 
 // MetadataNode Represents metadata as serialised for DGraph
@@ -227,8 +265,6 @@ func (i MetadataNode) MarshalJSON() ([]byte, error) {
 func (i *MetadataNode) UnmarshalJSON(value []byte) error {
 	return json.Unmarshal(value, i)
 }
-
-// TODO: Custom marshalling for MetadataNode: uid and dgraph.type
 
 // Attributes Represents the attributes of a single item
 type Attributes struct {
@@ -280,7 +316,3 @@ func (a *Attributes) UnmarshalJSON(value []byte) error {
 
 	return nil
 }
-
-// func ToUpsert(items []*sdp.Item) []map[string]interface{} {
-
-// }
