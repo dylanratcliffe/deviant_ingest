@@ -1,0 +1,9 @@
+
+servicenameT
+R
+
+enabled 
+-
+name%#com.apple.DataDetectorsSourceAccess
+
+state	stopped"8puppet.service"ÄÜºþÀ‡ÌN*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local
