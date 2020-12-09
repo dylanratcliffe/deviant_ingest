@@ -1,10 +1,15 @@
 package ingest
 
 import (
+	"context"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
+	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
@@ -109,14 +114,26 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	d, err = NewDGraphClient(
 		"localhost",
 		9080,
-		(300 * time.Millisecond),
+		(1000 * time.Millisecond),
 	)
+
+	messages, err := LoadTestMessages()
+
+	// Make sure the schema is set up
+	SetupSchemas(d)
 
 	if err != nil {
 		t.Skip(err)
 	}
 
-	for _, message := range testMessages {
+	// Register a cleanup function to drop all
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
+
+	for _, message := range messages {
 		t.Run("Handling an item", func(t *testing.T) {
 			var debugChannel chan UpsertResult
 			var handle nats.MsgHandler
@@ -131,19 +148,54 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 			result = <-debugChannel
 
 			if result.Error != nil {
-				if result.Request != nil {
-					t.Log(string(result.Request.String()))
-				}
+				// if result.Request != nil {
+				// 	t.Log(string(result.Request.String()))
+				// }
 
-				if result.Respose != nil {
-					t.Log(string(result.Respose.GetJson()))
-				}
+				// if result.Respose != nil {
+				// 	t.Log(string(result.Respose.GetJson()))
+				// }
 
 				t.Error(result.Error)
 			}
-
-			t.Log(string(result.Request.String()))
-			t.Log(string(result.Respose.Json))
 		})
 	}
+}
+
+// LoadTestMessages Loads a bunch of test messages from the `testdata` folder.
+// These were created using the `save` command on test systems
+func LoadTestMessages() ([]*nats.Msg, error) {
+	var messages []*nats.Msg
+	var content []byte
+	var files []os.FileInfo
+	var err error
+
+	// Get all files in the testdata directory
+	files, err = ioutil.ReadDir("../testdata")
+
+	if err != nil {
+		return messages, err
+	}
+
+	for _, file := range files {
+		if file.IsDir() == false {
+			content, err = ioutil.ReadFile(filepath.Join("../testdata", file.Name()))
+
+			if err != nil {
+				return messages, err
+			}
+
+			messages = append(messages, &nats.Msg{
+				Subject: "pugs",
+				Reply:   "please",
+				Data:    content,
+				Sub: &nats.Subscription{
+					Subject: "pugs",
+					Queue:   "stampede",
+				},
+			})
+		}
+	}
+
+	return messages, nil
 }

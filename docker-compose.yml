@@ -15,8 +15,6 @@ services:
     command: -V
   zero:
     image: dgraph/dgraph:latest
-    volumes:
-      - /tmp/data:/dgraph
     ports:
       - 5080:5080
       - 6080:6080
@@ -24,8 +22,6 @@ services:
     command: dgraph zero --my=zero:5080
   alpha:
     image: dgraph/dgraph:latest
-    volumes:
-      - /tmp/data:/dgraph
     ports:
       - 8080:8080
       - 9080:9080
