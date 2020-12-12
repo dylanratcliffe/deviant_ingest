@@ -2,6 +2,8 @@ package ingest
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,7 +14,6 @@ import (
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
 )
@@ -20,11 +21,6 @@ import (
 // DGraph Stores details about the DGraph connection
 type DGraph struct {
 	Conn *dgo.Dgraph
-}
-
-// InsertAllHandler Nats item handler that inserts items into the database
-func (d *DGraph) InsertAllHandler(msg *nats.Msg) {
-
 }
 
 // NewDGraphClient Create a dgraph client connection
@@ -147,7 +143,7 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 
 	for index, li := range i.LinkedItems {
 		liJSON, err := json.Marshal(map[string]string{
-			"uid":                fmt.Sprintf("uid(linkedItem%v.item)", index),
+			"uid":                fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index),
 			"GloballyUniqueName": li.GloballyUniqueName(),
 		})
 
@@ -156,7 +152,7 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 			// This placeholder will be replaced with the actual item once it
 			// arrives
 			mutations = append(mutations, &api.Mutation{
-				Cond:    fmt.Sprintf("@if(eq(len(linkedItem%v.item), 0))", index),
+				Cond:    fmt.Sprintf("@if(eq(len(%v.linkedItem%v.item), 0))", i.Hash(), index),
 				SetJson: liJSON,
 			})
 		}
@@ -173,7 +169,7 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 	// Create the linked items
 	for index := range i.LinkedItems {
 		// This refers to a variable that was created duing the initial query
-		li = append(li, fmt.Sprintf("uid(linkedItem%v.item)", index))
+		li = append(li, fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index))
 	}
 
 	type Alias ItemNode
@@ -187,9 +183,9 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 		LinkedItems          []string `json:"LinkedItems"`
 		Alias
 	}{
-		UID:                  "uid(item.item)",
-		Attributes:           "uid(item.attributes)",
-		Metadata:             "uid(item.metadata)",
+		UID:                  fmt.Sprintf("uid(%v.item)", i.Hash()),
+		Attributes:           fmt.Sprintf("uid(%v.attributes)", i.Hash()),
+		Metadata:             fmt.Sprintf("uid(%v.metadata)", i.Hash()),
 		DType:                "Item",
 		LinkedItems:          li,
 		UniqueAttributeValue: i.item.UniqueAttributeValue(),
@@ -214,25 +210,50 @@ func (i *ItemNode) Query() string {
 
 	// Query for the its own UID and the UIDs of the attributes and metadata
 	query = fmt.Sprintf(`
-		item(func: eq(GloballyUniqueName, "%v")) {
-			item.item as uid
-			item.attributes as Attributes
-			item.metadata as Metadata
+		%v(func: eq(GloballyUniqueName, "%v")) {
+			%v.item as uid
+			%v.attributes as Attributes
+			%v.metadata as Metadata
 		}
-	`, i.item.GloballyUniqueName())
+	`,
+		i.Hash(),
+		i.item.GloballyUniqueName(),
+		i.Hash(),
+		i.Hash(),
+		i.Hash(),
+	)
 
 	// Add subsequent queries for linked items
 	for index, linkedItem := range i.item.LinkedItems {
 		q := fmt.Sprintf(`
-			linkedItem%v(func: eq(GloballyUniqueName, "%v")) {
-				linkedItem%v.item as uid
+			%v.linkedItem%v(func: eq(GloballyUniqueName, "%v")) {
+				%v.linkedItem%v.item as uid
 			}
-		`, index, linkedItem.GloballyUniqueName(), index)
+		`, i.Hash(), index, linkedItem.GloballyUniqueName(), i.Hash(), index)
 
 		query = query + "\n" + q
 	}
 
-	return ("{" + query + "}")
+	return query
+}
+
+// Hash Returns a 10 character hash for the item. This is unlikely but not
+// guarenteed to be unique
+func (i *ItemNode) Hash() string {
+	var shaSum [20]byte
+	var paddedEncoding *base32.Encoding
+	var unpaddedEencoding *base32.Encoding
+
+	shaSum = sha1.Sum([]byte(i.item.GloballyUniqueName()))
+
+	// We need to specify a custom encoding here since dGraph has fairly struct
+	// requrements aboout what name a variable
+	paddedEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEF")
+
+	// We also can't have padding since "=" is not allowed in variable names
+	unpaddedEencoding = paddedEncoding.WithPadding(base32.NoPadding)
+
+	return unpaddedEencoding.EncodeToString(shaSum[:9])
 }
 
 // MetadataNode Represents metadata as serialised for DGraph
@@ -243,7 +264,7 @@ type MetadataNode struct {
 	BackendDuration        time.Duration `json:"BackendDuration,omitempty"`
 	BackendDurationPerItem time.Duration `json:"BackendDurationPerItem,omitempty"`
 	BackendPackage         string        `json:"BackendPackage,omitempty"`
-	item                   *sdp.Item
+	itemNode               *ItemNode
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
@@ -255,7 +276,7 @@ func (i MetadataNode) MarshalJSON() ([]byte, error) {
 		DType string `json:"dgraph.type,omitempty"`
 		Alias
 	}{
-		UID:   "uid(item.metadata)",
+		UID:   fmt.Sprintf("uid(%v.metadata)", i.itemNode.Hash()),
 		DType: "itemMetadata",
 		Alias: (Alias)(i),
 	})
@@ -268,8 +289,8 @@ func (i *MetadataNode) UnmarshalJSON(value []byte) error {
 
 // Attributes Represents the attributes of a single item
 type Attributes struct {
-	Map  map[string]interface{}
-	item *sdp.Item
+	Map      map[string]interface{}
+	itemNode *ItemNode
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
@@ -284,12 +305,12 @@ func (a Attributes) MarshalJSON() ([]byte, error) {
 	newMap := make(map[string]interface{})
 
 	for k, v := range a.Map {
-		newMap[fmt.Sprintf("%v.%v", a.item.GetType(), k)] = v
+		newMap[fmt.Sprintf("%v.%v", a.itemNode.item.GetType(), k)] = v
 	}
 
 	// Append the dgraph type and UID
-	newMap["dgraph.type"] = fmt.Sprintf("%vAttributes", a.item.GetType())
-	newMap["uid"] = "uid(item.attributes)"
+	newMap["dgraph.type"] = fmt.Sprintf("%vAttributes", a.itemNode.item.GetType())
+	newMap["uid"] = fmt.Sprintf("uid(%v.attributes)", a.itemNode.Hash())
 
 	return json.Marshal(newMap)
 }

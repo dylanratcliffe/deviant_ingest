@@ -45,15 +45,27 @@ TODO`,
 
 		viper.SetDefault("dgraph.host", "localhost")
 		viper.SetDefault("dgraph.port", 9080)
-		viper.SetDefault("dgraph.connectionTimeout", "5s")
+		viper.SetDefault("dgraph.connectTimeout", "5s")
+
 		dgHost := viper.GetString("dgraph.host")
-		dgTimeout := viper.GetString("dgraph.connectionTimeout")
+		dgTimeout := viper.GetString("dgraph.connectTimeout")
 		dgPort := viper.GetInt("dgraph.port")
 
 		t, _ := time.ParseDuration(dgTimeout)
 
 		// Make the dgraph connection
 		dg, err := ingest.NewDGraphClient(dgHost, dgPort, t)
+
+		viper.SetDefault("ingest.batchSize", 50)
+		viper.SetDefault("ingest.maxWait", "10s")
+
+		maxWait, _ := time.ParseDuration(viper.GetString("ingest.maxWait"))
+
+		ir := ingest.Ingestor{
+			BatchSize: viper.GetInt("ingest.batchSize"),
+			MaxWait:   maxWait,
+			Dgraph:    dg,
+		}
 
 		if err != nil {
 			log.Fatal(err)
@@ -95,7 +107,7 @@ TODO`,
 			}
 		}()
 
-		sub, err := nc.QueueSubscribe(subject, queueName, ingest.NewUpsertHandler(dg, dc))
+		sub, err := nc.QueueSubscribe(subject, queueName, ir.AsyncHandle)
 		defer sub.Drain()
 
 		if err != nil {

@@ -117,49 +117,64 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		(1000 * time.Millisecond),
 	)
 
-	messages, err := LoadTestMessages()
+	if err != nil {
+		t.Skip(err)
+	}
 
-	// Make sure the schema is set up
-	SetupSchemas(d)
+	// Create ingestor
+	ir := Ingestor{
+		BatchSize:    100,
+		MaxWait:      (300 * time.Millisecond),
+		Dgraph:       d,
+		DebugChannel: make(chan UpsertResult, 10000),
+	}
+
+	messages, err := LoadTestMessages()
 
 	if err != nil {
 		t.Skip(err)
 	}
 
+	// Make sure the schema is set up
+	SetupSchemas(d)
+
+	// Start handler
+	// batchContext, cancelProcessing := context.WithCancel(context.Background())
+	// go ir.StartBatchProcessing(batchContext)
+
 	// Register a cleanup function to drop all
 	t.Cleanup(func() {
+		// cancelProcessing()
+
 		d.Alter(context.Background(), &api.Operation{
 			DropAll: true,
 		})
 	})
 
 	for _, message := range messages {
-		t.Run("Handling an item", func(t *testing.T) {
-			var debugChannel chan UpsertResult
-			var handle nats.MsgHandler
-			var result UpsertResult
-
-			debugChannel = make(chan UpsertResult)
-			handle = NewUpsertHandler(d, debugChannel)
-
-			go handle(message)
-
-			// Read the result from the debug channel
-			result = <-debugChannel
-
-			if result.Error != nil {
-				// if result.Request != nil {
-				// 	t.Log(string(result.Request.String()))
-				// }
-
-				// if result.Respose != nil {
-				// 	t.Log(string(result.Respose.GetJson()))
-				// }
-
-				t.Error(result.Error)
-			}
+		t.Run("Handling an item asynchronously", func(t *testing.T) {
+			// At the moment handlers are async. This means that all handles
+			// should return vary quickly even if there is actually a
+			// significant queue of stuff to insert into the database. I'm
+			// wondering for the sake of testing how I would tell that
+			// operations were complete... Maybe I should work out some way of
+			// making the handler blocking...
+			go ir.AsyncHandle(message)
 		})
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), (120 * time.Second))
+
+	go ir.ProcessBatches(ctx)
+	defer cancel()
+
+	t.Run("Upsert results", func(t *testing.T) {
+		for result := range ir.DebugChannel {
+			if result.Error != nil {
+				t.Fatal(result.Error)
+			}
+		}
+	})
 }
 
 // LoadTestMessages Loads a bunch of test messages from the `testdata` folder.
