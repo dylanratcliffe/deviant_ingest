@@ -115,7 +115,7 @@ type ItemNode struct {
 	UniqueAttribute string           `json:"UniqueAttribute,omitempty"`
 	Context         string           `json:"Context,omitempty"`
 	Metadata        MetadataNode     `json:"Metadata,omitempty"`
-	Attrributes     Attributes       `json:"-"`
+	Attrributes     AttributesNode   `json:"-"`
 	LinkedItems     []*sdp.Reference `json:"-"`
 	item            *sdp.Item        `json:"-"`
 }
@@ -287,15 +287,15 @@ func (i *MetadataNode) UnmarshalJSON(value []byte) error {
 	return json.Unmarshal(value, i)
 }
 
-// Attributes Represents the attributes of a single item
-type Attributes struct {
+// AttributesNode Represents the attributes of a single item
+type AttributesNode struct {
 	Map      map[string]interface{}
 	itemNode *ItemNode
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
 // required for DGraph
-func (a Attributes) MarshalJSON() ([]byte, error) {
+func (a AttributesNode) MarshalJSON() ([]byte, error) {
 	// We want to store the attributes in the format {type}.{attribute}. This is
 	// so that we don't have a clash of predicates. We wan this becuase we will
 	// also be doing dynamic type generation and I think it needs to be unique.
@@ -316,7 +316,7 @@ func (a Attributes) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON Converts from JSON to Attributes
-func (a *Attributes) UnmarshalJSON(value []byte) error {
+func (a *AttributesNode) UnmarshalJSON(value []byte) error {
 	dotMap := make(map[string]interface{})
 	a.Map = make(map[string]interface{})
 

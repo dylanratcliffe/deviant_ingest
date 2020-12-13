@@ -151,8 +151,8 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		})
 	})
 
-	for _, message := range messages {
-		t.Run("Handling an item asynchronously", func(t *testing.T) {
+	t.Run("Handling items asynchronously", func(t *testing.T) {
+		for _, message := range messages {
 			// At the moment handlers are async. This means that all handles
 			// should return vary quickly even if there is actually a
 			// significant queue of stuff to insert into the database. I'm
@@ -160,8 +160,8 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 			// operations were complete... Maybe I should work out some way of
 			// making the handler blocking...
 			go ir.AsyncHandle(message)
-		})
-	}
+		}
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), (120 * time.Second))
 
@@ -171,6 +171,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	t.Run("Upsert results", func(t *testing.T) {
 		for result := range ir.DebugChannel {
 			if result.Error != nil {
+				t.Log(result.Respose)
 				t.Fatal(result.Error)
 			}
 		}

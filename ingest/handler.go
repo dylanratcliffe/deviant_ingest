@@ -124,7 +124,7 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 		itemNode:               &itemNode,
 	}
 
-	itemNode.Attrributes = Attributes{
+	itemNode.Attrributes = AttributesNode{
 		Map:      item.GetAttributes().GetAttrStruct().AsMap(),
 		itemNode: &itemNode,
 	}
