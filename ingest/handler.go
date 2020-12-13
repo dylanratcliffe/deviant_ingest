@@ -35,7 +35,7 @@ type UpsertResult struct {
 // TODO: Re-Add debugging
 
 // UpsertBatch Upserts a set of items into the database
-func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
+func (i *Ingestor) UpsertBatch(batch []ItemNode, debugChannel chan UpsertResult) (*api.Response, error) {
 	var req *api.Request
 	var err error
 	var ctx context.Context
@@ -76,7 +76,17 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 	req.Mutations = mutations
 
 	// Execute the upsert request
-	return i.Dgraph.NewTxn().Do(ctx, req)
+	res, err := i.Dgraph.NewTxn().Do(ctx, req)
+
+	if i.DebugChannel != nil {
+		i.DebugChannel <- UpsertResult{
+			Request: req,
+			Respose: res,
+			Error:   err,
+		}
+	}
+
+	return res, err
 }
 
 // AsyncHandle Creates a NATS message handler that upserts items into the given database
@@ -124,9 +134,9 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 		itemNode:               &itemNode,
 	}
 
-	itemNode.Attrributes = AttributesNode{
-		Map:      item.GetAttributes().GetAttrStruct().AsMap(),
-		itemNode: &itemNode,
+	itemNode.Attributes = AttributesNode{
+		Map:            item.GetAttributes().GetAttrStruct().AsMap(),
+		ParentItemNode: &itemNode,
 	}
 
 	i.itemNodeChannel <- itemNode
@@ -136,7 +146,7 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 	}).Debug("Queued item")
 }
 
-// ProcessBatches will start inserting items into the databse in batches.
+// ProcessBatches will start inserting items into the database in batches.
 // This will block forever
 func (i *Ingestor) ProcessBatches(ctx context.Context) {
 	if i.itemNodeChannel == nil {
@@ -148,33 +158,25 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 
 	for {
 		if full {
-			res, err := i.UpsertBatch(items)
+			// Reset the flag
+			full = false
 
-			if i.DebugChannel != nil {
-				i.DebugChannel <- UpsertResult{
-					Respose: res,
-					Error:   err,
-				}
-			}
+			i.UpsertBatch(items, i.DebugChannel)
+
+			// Empty the items variable
+			items = make([]ItemNode, 0)
 		}
-		// Wait for the following conditions and execte the first one to be met.
+		// Wait for the following conditions and execute the first one to be met.
 		// If multiple are met one will be selected at random
 		//
-		// * If the batch size has been met: Upsert into databse
+		// * If the batch size has been met: Upsert into database
 		// * If the max time has elapsed: Upsert into database
 		// * If there is an item waiting to be processed: Add it to the batch
 		// * If the context was cancelled: Final upsert and return
 		select {
 		case <-time.After(i.MaxWait):
 			if len(items) > 0 {
-				res, err := i.UpsertBatch(items)
-
-				if i.DebugChannel != nil {
-					i.DebugChannel <- UpsertResult{
-						Respose: res,
-						Error:   err,
-					}
-				}
+				i.UpsertBatch(items, i.DebugChannel)
 			}
 		case item := <-i.itemNodeChannel:
 			items = append(items, item)
@@ -186,14 +188,7 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 				full = true
 			}
 		case <-ctx.Done():
-			res, err := i.UpsertBatch(items)
-
-			if i.DebugChannel != nil {
-				i.DebugChannel <- UpsertResult{
-					Respose: res,
-					Error:   err,
-				}
-			}
+			i.UpsertBatch(items, i.DebugChannel)
 			return
 		}
 	}

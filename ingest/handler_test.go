@@ -123,7 +123,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Create ingestor
 	ir := Ingestor{
-		BatchSize:    100,
+		BatchSize:    3,
 		MaxWait:      (300 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),
@@ -171,6 +171,15 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	t.Run("Upsert results", func(t *testing.T) {
 		for result := range ir.DebugChannel {
 			if result.Error != nil {
+				t.Log("UPSERT FAILURE")
+				t.Log("---QUERY---")
+				t.Log(result.Request.GetQuery())
+				t.Log("---MUTATIONS---")
+				for i, m := range result.Request.GetMutations() {
+					t.Logf("---MUTATION %v---", i)
+					t.Log(string(m.GetSetJson()))
+				}
+				t.Log("---RESPONSE---")
 				t.Log(result.Respose)
 				t.Fatal(result.Error)
 			}

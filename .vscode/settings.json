@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "NATS",
+        "Upserts",
         "cond",
         "dgraph",
         "grpc",
