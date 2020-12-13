@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
-	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
@@ -123,7 +122,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Create ingestor
 	ir := Ingestor{
-		BatchSize:    3,
+		BatchSize:    100,
 		MaxWait:      (300 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),
@@ -138,29 +137,25 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	// Make sure the schema is set up
 	SetupSchemas(d)
 
-	// Start handler
-	// batchContext, cancelProcessing := context.WithCancel(context.Background())
-	// go ir.StartBatchProcessing(batchContext)
-
 	// Register a cleanup function to drop all
-	t.Cleanup(func() {
-		// cancelProcessing()
-
-		d.Alter(context.Background(), &api.Operation{
-			DropAll: true,
-		})
-	})
+	// t.Cleanup(func() {
+	// 	d.Alter(context.Background(), &api.Operation{
+	// 		DropAll: true,
+	// 	})
+	// })
 
 	t.Run("Handling items asynchronously", func(t *testing.T) {
-		for _, message := range messages {
-			// At the moment handlers are async. This means that all handles
-			// should return vary quickly even if there is actually a
-			// significant queue of stuff to insert into the database. I'm
-			// wondering for the sake of testing how I would tell that
-			// operations were complete... Maybe I should work out some way of
-			// making the handler blocking...
-			go ir.AsyncHandle(message)
-		}
+		go func() {
+			for _, message := range messages {
+				// At the moment handlers are async. This means that all handles
+				// should return vary quickly even if there is actually a
+				// significant queue of stuff to insert into the database. I'm
+				// wondering for the sake of testing how I would tell that
+				// operations were complete... Maybe I should work out some way of
+				// making the handler blocking...
+				ir.AsyncHandle(message)
+			}
+		}()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), (120 * time.Second))

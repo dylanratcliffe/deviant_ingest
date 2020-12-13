@@ -397,7 +397,7 @@ func ToAttributes(value interface{}, parent *AttributesNode, key string) interfa
 		var valueSlice []interface{}
 
 		for i := 0; i < vValue.Len(); i++ {
-			valueSlice = append(valueSlice, ToAttributes(value, parent, key))
+			valueSlice = append(valueSlice, ToAttributes(vValue.Index(i).Interface(), parent, key))
 		}
 
 		return valueSlice
