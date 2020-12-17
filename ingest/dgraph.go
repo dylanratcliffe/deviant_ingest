@@ -126,6 +126,14 @@ type ItemNode struct {
 	item            *sdp.Item        `json:"-"`
 }
 
+// UniqueAttributeValue Return the unique attribute value of the item
+func (i *ItemNode) UniqueAttributeValue() string {
+	if i.item != nil {
+		return i.item.UniqueAttributeValue()
+	}
+	return ""
+}
+
 // Mutations Returns a list of mutations that can be
 func (i *ItemNode) Mutations() []*api.Mutation {
 	var mutations []*api.Mutation

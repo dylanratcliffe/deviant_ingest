@@ -30,15 +30,17 @@ type Ingestor struct {
 
 // UpsertResult Represents the result of handling an upsert
 type UpsertResult struct {
-	Request *api.Request
-	Respose *api.Response
-	Error   error
+	Context              string
+	Type                 string
+	UniqueAttributeValue string
+	Attributes           string
+	Error                error
 }
 
 // TODO: Re-Add debugging
 
 // UpsertBatch Upserts a set of items into the database
-func (i *Ingestor) UpsertBatch(batch []ItemNode, debugChannel chan UpsertResult) (*api.Response, error) {
+func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 	var req *api.Request
 	var err error
 	var ctx context.Context
@@ -137,6 +139,16 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 			"attributes": item.GetAttributes(),
 			"error":      err,
 		}).Error("Failed marshaling attributes to JSON")
+
+		if i.DebugChannel != nil {
+			i.DebugChannel <- UpsertResult{
+				Context:              item.GetContext(),
+				Type:                 item.GetType(),
+				Attributes:           item.GetAttributes().String(),
+				UniqueAttributeValue: item.UniqueAttributeValue(),
+				Error:                err,
+			}
+		}
 	}
 
 	upsertRetries := viper.GetInt("dgraph.upsertRetries")
@@ -212,7 +224,7 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 
 	startTime = time.Now()
 
-	response, err := i.UpsertBatch(items, i.DebugChannel)
+	response, err := i.UpsertBatch(items)
 
 	upsertDuration = time.Since(startTime)
 
@@ -233,8 +245,11 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 
 				if i.DebugChannel != nil {
 					i.DebugChannel <- UpsertResult{
-						Respose: response,
-						Error:   err,
+						Context:              in.Item.Context,
+						Type:                 in.Item.Type,
+						Attributes:           in.Item.Attributes,
+						UniqueAttributeValue: in.Item.UniqueAttributeValue(),
+						Error:                err,
 					}
 				}
 			} else {
@@ -264,9 +279,15 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 			"duration": upsertDuration.String(),
 		}).Debug("Items upserted successfully")
 
-		if i.DebugChannel != nil {
-			i.DebugChannel <- UpsertResult{
-				Respose: response,
+		for _, it := range items {
+			if i.DebugChannel != nil {
+				i.DebugChannel <- UpsertResult{
+					Context:              it.Context,
+					Type:                 it.Type,
+					UniqueAttributeValue: it.UniqueAttributeValue(),
+					Attributes:           it.Attributes,
+					Error:                nil,
+				}
 			}
 		}
 	}
