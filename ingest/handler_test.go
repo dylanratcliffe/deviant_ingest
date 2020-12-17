@@ -109,6 +109,9 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	var d *dgo.Dgraph
 	var err error
 
+	// Load default values
+	SetConfigDefaults()
+
 	// Connect to local DGraph
 	d, err = NewDGraphClient(
 		"localhost",
@@ -122,7 +125,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Create ingestor
 	ir := Ingestor{
-		BatchSize:    100,
+		BatchSize:    50,
 		MaxWait:      (300 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),

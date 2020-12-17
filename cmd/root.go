@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dylanratcliffe/redacted_dgraph/ingest"
 	"github.com/spf13/cobra"
 
 	homedir "github.com/mitchellh/go-homedir"
@@ -84,6 +85,9 @@ func initConfig() {
 	viper.SetEnvPrefix("redacted")
 	viper.SetEnvKeyReplacer(replacer)
 	viper.AutomaticEnv() // read in environment variables that match
+
+	// Load defaults
+	ingest.SetConfigDefaults()
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {

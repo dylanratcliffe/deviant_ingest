@@ -21,10 +21,6 @@ TODO`,
 		var err error
 
 		// Connect to the NATS infrastructure
-		viper.SetDefault("nats.retries", 5)
-		viper.SetDefault("nats.timeout", 10)
-		viper.SetDefault("nats.urls", []string{"localhost"})
-
 		urls := viper.GetStringSlice("nats.urls")
 
 		// Ensure that a NATS url was passed
@@ -43,10 +39,6 @@ TODO`,
 			timeout,
 		)
 
-		viper.SetDefault("dgraph.host", "localhost")
-		viper.SetDefault("dgraph.port", 9080)
-		viper.SetDefault("dgraph.connectTimeout", "5s")
-
 		dgHost := viper.GetString("dgraph.host")
 		dgTimeout := viper.GetString("dgraph.connectTimeout")
 		dgPort := viper.GetInt("dgraph.port")
@@ -55,9 +47,6 @@ TODO`,
 
 		// Make the dgraph connection
 		dg, err := ingest.NewDGraphClient(dgHost, dgPort, t)
-
-		viper.SetDefault("ingest.batchSize", 50)
-		viper.SetDefault("ingest.maxWait", "10s")
 
 		maxWait, _ := time.ParseDuration(viper.GetString("ingest.maxWait"))
 

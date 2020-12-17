@@ -21,10 +21,6 @@ var saveCmd = &cobra.Command{
 	Long:  `Saves items from a NATS network to disk for usae later`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Connect to the NATS infrastructure
-		viper.SetDefault("nats.retries", 5)
-		viper.SetDefault("nats.timeout", 10)
-		viper.SetDefault("nats.urls", []string{"localhost"})
-
 		urls := viper.GetStringSlice("nats.urls")
 
 		// Ensure that a NATS url was passed

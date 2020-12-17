@@ -110,6 +110,13 @@ func SetupSchemas(dg *dgo.Dgraph) error {
 	return err
 }
 
+// ItemInsertion Represents an item to be inserted, it includes an item and the
+// TTL. The TTL will be reduced each time it is retried
+type ItemInsertion struct {
+	Item ItemNode
+	TTL  int
+}
+
 // ItemNode Represents an item, it also is able to return a full list of
 // mutations
 type ItemNode struct {

@@ -17,12 +17,13 @@ import (
 
 // Ingestor is capable of ingesting items into the database
 type Ingestor struct {
-	BatchSize    int           // The number of items to batch before inserting
-	MaxWait      time.Duration // Max amount of time to wait before inserting
-	Dgraph       *dgo.Dgraph   // The DGraph connection to use
-	DebugChannel chan UpsertResult
+	BatchSize     int           // The number of items to batch before inserting
+	MaxWait       time.Duration // Max amount of time to wait before inserting
+	Dgraph        *dgo.Dgraph   // The DGraph connection to use
+	DebugChannel  chan UpsertResult
+	IngestRetries int
 
-	itemNodeChannel chan ItemNode
+	itemChannel chan ItemInsertion
 }
 
 // UpsertResult Represents the result of handling an upsert
@@ -46,7 +47,6 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode, debugChannel chan UpsertResult)
 	var upsertTimeout string
 
 	// TODO: Ensure that this is reading from memory so it's fast
-	viper.SetDefault("dgraph.upsertTimeout", "20s")
 	upsertTimeout = viper.GetString("dgraph.upsertTimeout")
 	timeout, err = time.ParseDuration(upsertTimeout)
 
@@ -78,21 +78,13 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode, debugChannel chan UpsertResult)
 	// Execute the upsert request
 	res, err := i.Dgraph.NewTxn().Do(ctx, req)
 
-	if i.DebugChannel != nil {
-		i.DebugChannel <- UpsertResult{
-			Request: req,
-			Respose: res,
-			Error:   err,
-		}
-	}
-
 	return res, err
 }
 
 // AsyncHandle Creates a NATS message handler that upserts items into the given database
 func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
-	if i.itemNodeChannel == nil {
-		i.itemNodeChannel = make(chan ItemNode)
+	if i.itemChannel == nil {
+		i.itemChannel = make(chan ItemInsertion)
 	}
 
 	var item *sdp.Item
@@ -139,7 +131,12 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 		ParentItemNode: &itemNode,
 	}
 
-	i.itemNodeChannel <- itemNode
+	upsertRetries := viper.GetInt("dgraph.upsertRetries")
+
+	i.itemChannel <- ItemInsertion{
+		Item: itemNode,
+		TTL:  upsertRetries,
+	}
 
 	log.WithFields(log.Fields{
 		"GloballyUniqueName": item.GloballyUniqueName(),
@@ -149,11 +146,11 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 // ProcessBatches will start inserting items into the database in batches.
 // This will block forever
 func (i *Ingestor) ProcessBatches(ctx context.Context) {
-	if i.itemNodeChannel == nil {
-		i.itemNodeChannel = make(chan ItemNode)
+	if i.itemChannel == nil {
+		i.itemChannel = make(chan ItemInsertion)
 	}
 
-	items := make([]ItemNode, 0)
+	insertions := make([]ItemInsertion, 0)
 	var full bool
 
 	for {
@@ -161,10 +158,10 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 			// Reset the flag
 			full = false
 
-			i.UpsertBatch(items, i.DebugChannel)
+			i.RetryUpsert(insertions)
 
 			// Empty the items variable
-			items = make([]ItemNode, 0)
+			insertions = make([]ItemInsertion, 0)
 		}
 		// Wait for the following conditions and execute the first one to be met.
 		// If multiple are met one will be selected at random
@@ -175,21 +172,96 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 		// * If the context was cancelled: Final upsert and return
 		select {
 		case <-time.After(i.MaxWait):
-			if len(items) > 0 {
-				i.UpsertBatch(items, i.DebugChannel)
+			if len(insertions) > 0 {
+				i.RetryUpsert(insertions)
 			}
-		case item := <-i.itemNodeChannel:
-			items = append(items, item)
+		case itemInsertion := <-i.itemChannel:
+			insertions = append(insertions, itemInsertion)
 
-			if len(items) >= i.BatchSize {
+			if len(insertions) >= i.BatchSize {
 				// If we have reached the batch size then place a bool onto the full
 				// channel. This will mean that next time around the upsert will be
 				// executed
 				full = true
 			}
 		case <-ctx.Done():
-			i.UpsertBatch(items, i.DebugChannel)
+			i.RetryUpsert(insertions)
 			return
+		}
+	}
+}
+
+// RetryUpsert Will do something about retrying upserts. Maybe put the back in
+// the queue using a TTL, maybe just sleep and retry...
+// TODO: Decide on the retry functionality
+func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
+	var items []ItemNode
+	var startTime time.Time
+	var upsertDuration time.Duration
+
+	// Extract the items
+	for _, ii := range insertions {
+		items = append(items, ii.Item)
+	}
+
+	startTime = time.Now()
+
+	response, err := i.UpsertBatch(items, i.DebugChannel)
+
+	upsertDuration = time.Since(startTime)
+
+	if err != nil {
+		var retry []ItemInsertion
+
+		retry = make([]ItemInsertion, 0)
+
+		// Check which should be retried
+		for _, in := range insertions {
+			if in.TTL == 0 {
+				log.WithFields(log.Fields{
+					"error":                  err,
+					"itemType":               in.Item.Type,
+					"itemGloballyUniqueName": in.Item.item.GloballyUniqueName(),
+					"attributes":             in.Item.Attributes,
+				}).Error("Item exceeded maximum retires, it has been dropped")
+
+				if i.DebugChannel != nil {
+					i.DebugChannel <- UpsertResult{
+						Respose: response,
+						Error:   err,
+					}
+				}
+			} else {
+				in.TTL--
+				retry = append(retry, in)
+			}
+		}
+
+		if len(retry) > 0 {
+			log.WithFields(log.Fields{
+				"error":      err,
+				"response":   response,
+				"numRetried": len(retry),
+			}).Error("Database upsert failed, retrying items")
+
+			// Spawn a routine to add these back into the channel so we don't block
+			go func(r []ItemInsertion) {
+				for _, in := range r {
+					i.itemChannel <- in
+				}
+			}(retry)
+		}
+	} else {
+		log.WithFields(log.Fields{
+			"response": response.String(),
+			"numItems": len(items),
+			"duration": upsertDuration.String(),
+		}).Debug("Items upserted successfully")
+
+		if i.DebugChannel != nil {
+			i.DebugChannel <- UpsertResult{
+				Respose: response,
+			}
 		}
 	}
 }
