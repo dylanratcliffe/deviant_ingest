@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
@@ -24,6 +25,7 @@ type Ingestor struct {
 	IngestRetries int
 
 	itemChannel chan ItemInsertion
+	mutex       sync.Mutex
 }
 
 // UpsertResult Represents the result of handling an upsert
@@ -83,12 +85,11 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode, debugChannel chan UpsertResult)
 
 // AsyncHandle Creates a NATS message handler that upserts items into the given database
 func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
-	if i.itemChannel == nil {
-		i.itemChannel = make(chan ItemInsertion)
-	}
+	i.EnsureItemChannel()
 
 	var item *sdp.Item
 	var itemNode ItemNode
+	var attributesJSON []byte
 	var err error
 
 	// TODO: Add timing of these operations and log the timing
@@ -126,9 +127,16 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 		itemNode:               &itemNode,
 	}
 
-	itemNode.Attributes = AttributesNode{
-		Map:            item.GetAttributes().GetAttrStruct().AsMap(),
-		ParentItemNode: &itemNode,
+	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
+
+	if err == nil {
+		itemNode.Attributes = string(attributesJSON)
+	} else {
+		log.WithFields(log.Fields{
+			"type":       item.GetType(),
+			"attributes": item.GetAttributes(),
+			"error":      err,
+		}).Error("Failed marshaling attributes to JSON")
 	}
 
 	upsertRetries := viper.GetInt("dgraph.upsertRetries")
@@ -146,9 +154,7 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 // ProcessBatches will start inserting items into the database in batches.
 // This will block forever
 func (i *Ingestor) ProcessBatches(ctx context.Context) {
-	if i.itemChannel == nil {
-		i.itemChannel = make(chan ItemInsertion)
-	}
+	i.EnsureItemChannel()
 
 	insertions := make([]ItemInsertion, 0)
 	var full bool
@@ -264,4 +270,14 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 			}
 		}
 	}
+}
+
+// EnsureItemChannel Ensures that the item channel exists
+func (i *Ingestor) EnsureItemChannel() {
+	i.mutex.Lock()
+	if i.itemChannel == nil {
+		i.itemChannel = make(chan ItemInsertion)
+	}
+	i.mutex.Unlock()
+
 }
