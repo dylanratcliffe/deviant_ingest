@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
+	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
@@ -125,7 +126,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Create ingestor
 	ir := Ingestor{
-		BatchSize:    1,
+		BatchSize:    2,
 		MaxWait:      (300 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),
@@ -141,11 +142,11 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	SetupSchemas(d)
 
 	// Register a cleanup function to drop all
-	// t.Cleanup(func() {
-	// 	d.Alter(context.Background(), &api.Operation{
-	// 		DropAll: true,
-	// 	})
-	// })
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
 
 	t.Run("Handling items asynchronously", func(t *testing.T) {
 		go func() {
