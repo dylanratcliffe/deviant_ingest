@@ -170,12 +170,17 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 // required for DGraph
 func (i ItemNode) MarshalJSON() ([]byte, error) {
 	var li []string
+	var uid string
+	var metadata string
 
 	// Create the linked items
 	for index := range i.LinkedItems {
 		// This refers to a variable that was created during the initial query
 		li = append(li, fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index))
 	}
+
+	uid = fmt.Sprintf("uid(%v.item)", i.Hash())
+	metadata = fmt.Sprintf("uid(%v.metadata)", i.Hash())
 
 	type Alias ItemNode
 	return json.Marshal(&struct {
@@ -185,8 +190,8 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 		LinkedItems []string `json:"LinkedItems"`
 		Alias
 	}{
-		UID:         fmt.Sprintf("uid(%v.item)", i.Hash()),
-		Metadata:    fmt.Sprintf("uid(%v.metadata)", i.Hash()),
+		UID:         uid,
+		Metadata:    metadata,
 		DType:       "Item",
 		LinkedItems: li,
 		Alias:       (Alias)(i),
@@ -194,32 +199,39 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON Converts from JSON to ItemNode
-// func (i *ItemNode) UnmarshalJSON(value []byte) error {
-// 	var s struct {
-// 		Attributes           string `json:"Attributes,omitempty"`
-// 		Type                 string `json:"Type,omitempty"`
-// 		UniqueAttribute      string `json:"UniqueAttribute,omitempty"`
-// 		UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
-// 		Context              string `json:"Context,omitempty"`
-// 		// TODO: Allow unmarshal of Metadata and linked items
-// 	}
+func (i *ItemNode) UnmarshalJSON(value []byte) error {
+	var s struct {
+		Attributes         string `json:"Attributes,omitempty"`
+		Context            string `json:"Context,omitempty"`
+		GloballyUniqueName string `json:"GloballyUniqueName,omitempty"`
+		// TODO: Allow unmarshal of linked items
+		// LinkedItems          []*sdp.Reference `json:"-"`
+		Metadata             MetadataNode `json:"Metadata,omitempty"`
+		Type                 string       `json:"Type,omitempty"`
+		UniqueAttribute      string       `json:"UniqueAttribute,omitempty"`
+		UniqueAttributeValue string       `json:"UniqueAttributeValue,omitempty"`
+	}
 
-// 	err := json.Unmarshal(value, &s)
+	err := json.Unmarshal(value, &s)
 
-// 	if err != nil {
-// 		return err
-// 	}
+	if err != nil {
+		return err
+	}
 
-// 	i.Type = s.Type
-// 	i.UniqueAttribute = s.UniqueAttribute
-// 	i.Context = s.Context
-// 	i.Attributes = s.Attributes
+	i.Attributes = s.Attributes
+	i.Context = s.Context
+	i.GloballyUniqueName = s.GloballyUniqueName
+	// i.LinkedItems = s.LinkedItems
+	i.Metadata = s.Metadata
+	i.Type = s.Type
+	i.UniqueAttribute = s.UniqueAttribute
+	i.UniqueAttributeValue = s.UniqueAttributeValue
 
-// 	// i.LinkedItems = s.LinkedItems
-// 	// i.Metadata = s.Metadata
+	// i.LinkedItems = s.LinkedItems
+	// i.Metadata = s.Metadata
 
-// 	return nil
-// }
+	return nil
+}
 
 // Query returns a query that should match specifically this item. It will also
 // export the following variables:
@@ -297,12 +309,35 @@ func (i MetadataNode) MarshalJSON() ([]byte, error) {
 		Alias
 	}{
 		UID:   fmt.Sprintf("uid(%v.metadata)", i.itemNode.Hash()),
-		DType: "itemMetadata",
+		DType: "Metadata",
 		Alias: (Alias)(i),
 	})
 }
 
 // UnmarshalJSON Converts from JSON to MetadataNode
 func (i *MetadataNode) UnmarshalJSON(value []byte) error {
-	return json.Unmarshal(value, i)
+	var err error
+	var m struct {
+		BackendName            string        `json:"BackendName,omitempty"`
+		RequestMethod          string        `json:"RequestMethod,omitempty"`
+		Timestamp              time.Time     `json:"Timestamp,omitempty"`
+		BackendDuration        time.Duration `json:"BackendDuration,omitempty"`
+		BackendDurationPerItem time.Duration `json:"BackendDurationPerItem,omitempty"`
+		BackendPackage         string        `json:"BackendPackage,omitempty"`
+	}
+
+	err = json.Unmarshal(value, &m)
+
+	if err != nil {
+		return err
+	}
+
+	i.BackendName = m.BackendName
+	i.RequestMethod = m.RequestMethod
+	i.Timestamp = m.Timestamp
+	i.BackendDuration = m.BackendDuration
+	i.BackendDurationPerItem = m.BackendDurationPerItem
+	i.BackendPackage = m.BackendPackage
+
+	return nil
 }

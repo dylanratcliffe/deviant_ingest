@@ -143,11 +143,11 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	SetupSchemas(d)
 
 	// Register a cleanup function to drop all
-	t.Cleanup(func() {
-		d.Alter(context.Background(), &api.Operation{
-			DropAll: true,
-		})
-	})
+	// t.Cleanup(func() {
+	// 	d.Alter(context.Background(), &api.Operation{
+	// 		DropAll: true,
+	// 	})
+	// })
 
 	t.Run("Handling items asynchronously", func(t *testing.T) {
 		go func() {
@@ -195,7 +195,9 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 			Items(func: type(Item)) {
 				uid
 				dgraph.type
-				expand(_all_)
+				expand(_all_) {
+					expand(_all_)
+				}
 			}
 		}`
 
