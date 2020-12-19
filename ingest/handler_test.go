@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -143,11 +145,11 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	SetupSchemas(d)
 
 	// Register a cleanup function to drop all
-	t.Cleanup(func() {
-		d.Alter(context.Background(), &api.Operation{
-			DropAll: true,
-		})
-	})
+	// t.Cleanup(func() {
+	// 	d.Alter(context.Background(), &api.Operation{
+	// 		DropAll: true,
+	// 	})
+	// })
 
 	t.Run("Handling items asynchronously", func(t *testing.T) {
 		go func() {
@@ -232,7 +234,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		// Loop over all the messages and make sure that they are in the database
 		for _, message := range messages {
 			// Extract the itemNode
-			in, err := MessageToItem(message)
+			in, err := MessageToItemNode(message)
 
 			if err != nil {
 				t.Fatal(err)
@@ -243,17 +245,33 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 				continue
 			}
 
-			t.Fatalf("Could not find item %v in database", in.GloballyUniqueName())
+			t.Fatalf("Could not find item %v in database", in.GloballyUniqueName)
 		}
 	})
 }
 
 // ItemNodeListContains Returns whether an ItemNode list contains a particular
 // SDP Item
-func ItemNodeListContains(inl []ItemNode, x *sdp.Item) bool {
-	for _, i := range inl {
-		if i.GloballyUniqueName == x.GloballyUniqueName() {
-			return true
+func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
+	for _, y := range inl {
+		if x.GloballyUniqueName == y.GloballyUniqueName {
+			// If the one we are checking for is an older version, then just ignore it
+			if x.Metadata.Timestamp.Before(y.Metadata.Timestamp) {
+				return true
+			}
+
+			// Sort linked items so that comparison works
+			sort.Slice(x.LinkedItems, func(i, j int) bool {
+				return x.LinkedItems[i].GloballyUniqueName() < x.LinkedItems[j].GloballyUniqueName()
+			})
+
+			sort.Slice(y.LinkedItems, func(i, j int) bool {
+				return y.LinkedItems[i].GloballyUniqueName() < y.LinkedItems[j].GloballyUniqueName()
+			})
+
+			if reflect.DeepEqual(x, y) {
+				return true
+			}
 		}
 	}
 	return false

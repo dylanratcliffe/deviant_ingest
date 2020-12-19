@@ -225,6 +225,10 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 	i.Context = s.Context
 	i.GloballyUniqueName = s.GloballyUniqueName
 	i.Metadata = s.Metadata
+
+	// We also need to ste the metadata's pointer reference
+	i.Metadata.itemNode = i
+
 	i.Type = s.Type
 	i.UniqueAttribute = s.UniqueAttribute
 	i.UniqueAttributeValue = s.UniqueAttributeValue
