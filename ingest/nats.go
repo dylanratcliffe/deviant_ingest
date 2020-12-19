@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 )
 
 // NewNATSConnection connects to a given NATS URL, it also support retries. Servers should be supplied as a slice of URLs e.g.
@@ -77,4 +79,59 @@ func NewNATSConnection(urls []string, retries int, sleep int, timeout int) *nats
 	}
 
 	panic("Could not connect to NATS, giving up")
+}
+
+// MessageToItem Converts a NATS message to an SDP Item
+func MessageToItem(msg *nats.Msg) (*sdp.Item, error) {
+	var item *sdp.Item
+	var err error
+
+	item = &sdp.Item{}
+
+	err = proto.Unmarshal(msg.Data, item)
+
+	return item, err
+}
+
+// MessageToItemNode Converts a NATS message to a DGraph ItemNode
+func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
+	var item *sdp.Item
+	var itemNode ItemNode
+	var attributesJSON []byte
+	var err error
+
+	item, err = MessageToItem(msg)
+
+	if err != nil {
+		return itemNode, err
+	}
+
+	// Convert to a local representation so that we can extract the database
+	// queries from it
+	itemNode = ItemNode{
+		Type:                 item.GetType(),
+		UniqueAttribute:      item.GetUniqueAttribute(),
+		Context:              item.GetContext(),
+		LinkedItems:          item.GetLinkedItems(),
+		UniqueAttributeValue: item.UniqueAttributeValue(),
+		GloballyUniqueName:   item.GloballyUniqueName(),
+	}
+
+	itemNode.Metadata = MetadataNode{
+		BackendName:            item.GetMetadata().GetBackendName(),
+		RequestMethod:          item.GetMetadata().GetRequestMethod().String(),
+		Timestamp:              item.GetMetadata().GetTimestamp().AsTime(),
+		BackendPackage:         item.GetMetadata().GetBackendPackage(),
+		BackendDuration:        item.GetMetadata().GetBackendDuration().AsDuration(),
+		BackendDurationPerItem: item.GetMetadata().GetBackendDurationPerItem().AsDuration(),
+		itemNode:               &itemNode,
+	}
+
+	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
+
+	if err == nil {
+		itemNode.Attributes = string(attributesJSON)
+	}
+
+	return itemNode, err
 }

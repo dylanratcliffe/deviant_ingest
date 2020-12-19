@@ -59,6 +59,7 @@ func NewDGraphClient(hostname string, port int, connectTimeout time.Duration) (*
 // from a future compatability perspective...
 var Schema = `
 type Item {
+	Context
 	Type
 	UniqueAttribute
 	UniqueAttributeValue
@@ -68,10 +69,11 @@ type Item {
 	LinkedItems
 }
 
-Type: string @index(hash) .
-UniqueAttribute: string @index(hash) .
-UniqueAttributeValue: string @index(hash) .
-GloballyUniqueName: string @index(hash) .
+Context: string @index(fulltext) .
+Type: string @index(exact) .
+UniqueAttribute: string @index(exact) .
+UniqueAttributeValue: string @index(exact) .
+GloballyUniqueName: string @index(exact) .
 Attributes: string .
 Metadata: uid .
 LinkedItems: [uid] @reverse .
@@ -85,12 +87,12 @@ type Metadata {
 	BackendPackage
 }
 
-BackendName: string @index(hash) .
+BackendName: string @index(exact) .
 RequestMethod: string .
 Timestamp: dateTime @index(hour) .
 BackendDuration: int .
 BackendDurationPerItem: int .
-BackendPackage: string @index(hash) .
+BackendPackage: string @index(exact) .
 `
 
 // SetupSchemas Will create the schemas required for ingest to work. This will
@@ -117,21 +119,14 @@ type ItemInsertion struct {
 // ItemNode Represents an item, it also is able to return a full list of
 // mutations
 type ItemNode struct {
-	Type            string           `json:"Type,omitempty"`
-	UniqueAttribute string           `json:"UniqueAttribute,omitempty"`
-	Context         string           `json:"Context,omitempty"`
-	Metadata        MetadataNode     `json:"Metadata,omitempty"`
-	Attributes      string           `json:"Attributes,omitempty"`
-	LinkedItems     []*sdp.Reference `json:"-"`
-	item            *sdp.Item        `json:"-"`
-}
-
-// UniqueAttributeValue Return the unique attribute value of the item
-func (i *ItemNode) UniqueAttributeValue() string {
-	if i.item != nil {
-		return i.item.UniqueAttributeValue()
-	}
-	return ""
+	Type                 string           `json:"Type,omitempty"`
+	UniqueAttribute      string           `json:"UniqueAttribute,omitempty"`
+	Context              string           `json:"Context,omitempty"`
+	Metadata             MetadataNode     `json:"Metadata,omitempty"`
+	Attributes           string           `json:"Attributes,omitempty"`
+	UniqueAttributeValue string           `json:"UniqueAttributeValue,omitempty"`
+	GloballyUniqueName   string           `json:"GloballyUniqueName,omitempty"`
+	LinkedItems          []*sdp.Reference `json:"-"`
 }
 
 // Mutations Returns a list of mutations that can be
@@ -184,28 +179,47 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 
 	type Alias ItemNode
 	return json.Marshal(&struct {
-		UID                  string   `json:"uid"`
-		DType                string   `json:"dgraph.type,omitempty"`
-		UniqueAttributeValue string   `json:"UniqueAttributeValue,omitempty"`
-		GloballyUniqueName   string   `json:"GloballyUniqueName,omitempty"`
-		Metadata             string   `json:"Metadata,omitempty"`
-		LinkedItems          []string `json:"LinkedItems"`
+		UID         string   `json:"uid"`
+		DType       string   `json:"dgraph.type,omitempty"`
+		Metadata    string   `json:"Metadata,omitempty"`
+		LinkedItems []string `json:"LinkedItems"`
 		Alias
 	}{
-		UID:                  fmt.Sprintf("uid(%v.item)", i.Hash()),
-		Metadata:             fmt.Sprintf("uid(%v.metadata)", i.Hash()),
-		DType:                "Item",
-		LinkedItems:          li,
-		UniqueAttributeValue: i.item.UniqueAttributeValue(),
-		GloballyUniqueName:   i.item.GloballyUniqueName(),
-		Alias:                (Alias)(i),
+		UID:         fmt.Sprintf("uid(%v.item)", i.Hash()),
+		Metadata:    fmt.Sprintf("uid(%v.metadata)", i.Hash()),
+		DType:       "Item",
+		LinkedItems: li,
+		Alias:       (Alias)(i),
 	})
 }
 
 // UnmarshalJSON Converts from JSON to ItemNode
-func (i *ItemNode) UnmarshalJSON(value []byte) error {
-	return json.Unmarshal(value, i)
-}
+// func (i *ItemNode) UnmarshalJSON(value []byte) error {
+// 	var s struct {
+// 		Attributes           string `json:"Attributes,omitempty"`
+// 		Type                 string `json:"Type,omitempty"`
+// 		UniqueAttribute      string `json:"UniqueAttribute,omitempty"`
+// 		UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
+// 		Context              string `json:"Context,omitempty"`
+// 		// TODO: Allow unmarshal of Metadata and linked items
+// 	}
+
+// 	err := json.Unmarshal(value, &s)
+
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	i.Type = s.Type
+// 	i.UniqueAttribute = s.UniqueAttribute
+// 	i.Context = s.Context
+// 	i.Attributes = s.Attributes
+
+// 	// i.LinkedItems = s.LinkedItems
+// 	// i.Metadata = s.Metadata
+
+// 	return nil
+// }
 
 // Query returns a query that should match specifically this item. It will also
 // export the following variables:
@@ -224,13 +238,13 @@ func (i *ItemNode) Query() string {
 		}
 	`,
 		i.Hash(),
-		i.item.GloballyUniqueName(),
+		i.GloballyUniqueName,
 		i.Hash(),
 		i.Hash(),
 	)
 
 	// Add subsequent queries for linked items
-	for index, linkedItem := range i.item.LinkedItems {
+	for index, linkedItem := range i.LinkedItems {
 		q := fmt.Sprintf(`
 			%v.linkedItem%v(func: eq(GloballyUniqueName, "%v")) {
 				%v.linkedItem%v.item as uid
@@ -250,7 +264,7 @@ func (i *ItemNode) Hash() string {
 	var paddedEncoding *base32.Encoding
 	var unpaddedEncoding *base32.Encoding
 
-	shaSum = sha1.Sum([]byte(fmt.Sprint(i.item.GloballyUniqueName(), i.item.GetMetadata().GetTimestamp())))
+	shaSum = sha1.Sum([]byte(fmt.Sprint(i.GloballyUniqueName, i.Metadata.Timestamp)))
 
 	// We need to specify a custom encoding here since dGraph has fairly struct
 	// requirements aboout what name a variable

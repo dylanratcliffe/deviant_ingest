@@ -9,11 +9,9 @@ import (
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"google.golang.org/protobuf/proto"
 )
 
 // Ingestor is capable of ingesting items into the database
@@ -89,16 +87,7 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 	i.EnsureItemChannel()
 
-	var item *sdp.Item
-	var itemNode ItemNode
-	var attributesJSON []byte
-	var err error
-
-	// TODO: Add timing of these operations and log the timing
-
-	item = &sdp.Item{}
-
-	err = proto.Unmarshal(msg.Data, item)
+	itemNode, err := MessageToItemNode(msg)
 
 	if err != nil {
 		if i.DebugChannel != nil {
@@ -109,48 +98,6 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 		return
 	}
 
-	// Convert to a local representation so that we can extract the database
-	// queries from it
-	itemNode = ItemNode{
-		Type:            item.GetType(),
-		UniqueAttribute: item.GetUniqueAttribute(),
-		Context:         item.GetContext(),
-		LinkedItems:     item.GetLinkedItems(),
-		item:            item,
-	}
-
-	itemNode.Metadata = MetadataNode{
-		BackendName:            item.GetMetadata().GetBackendName(),
-		RequestMethod:          item.GetMetadata().GetRequestMethod().String(),
-		Timestamp:              item.GetMetadata().GetTimestamp().AsTime(),
-		BackendPackage:         item.GetMetadata().GetBackendPackage(),
-		BackendDuration:        item.GetMetadata().GetBackendDuration().AsDuration(),
-		BackendDurationPerItem: item.GetMetadata().GetBackendDurationPerItem().AsDuration(),
-		itemNode:               &itemNode,
-	}
-
-	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
-
-	if err == nil {
-		itemNode.Attributes = string(attributesJSON)
-	} else {
-		log.WithFields(log.Fields{
-			"type":       item.GetType(),
-			"attributes": item.GetAttributes(),
-			"error":      err,
-		}).Error("Failed marshaling attributes to JSON")
-
-		if i.DebugChannel != nil {
-			i.DebugChannel <- UpsertResult{
-				Context:              item.GetContext(),
-				Type:                 item.GetType(),
-				Attributes:           item.GetAttributes().String(),
-				UniqueAttributeValue: item.UniqueAttributeValue(),
-				Error:                err,
-			}
-		}
-	}
-
 	upsertRetries := viper.GetInt("dgraph.upsertRetries")
 
 	i.itemChannel <- ItemInsertion{
@@ -159,7 +106,7 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 	}
 
 	log.WithFields(log.Fields{
-		"GloballyUniqueName": item.GloballyUniqueName(),
+		"GloballyUniqueName": itemNode.GloballyUniqueName,
 	}).Debug("Queued item")
 }
 
@@ -239,7 +186,7 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 				log.WithFields(log.Fields{
 					"error":                  err,
 					"itemType":               in.Item.Type,
-					"itemGloballyUniqueName": in.Item.item.GloballyUniqueName(),
+					"itemGloballyUniqueName": in.Item.GloballyUniqueName,
 					"attributes":             in.Item.Attributes,
 				}).Error("Item exceeded maximum retires, it has been dropped")
 
@@ -248,7 +195,7 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 						Context:              in.Item.Context,
 						Type:                 in.Item.Type,
 						Attributes:           in.Item.Attributes,
-						UniqueAttributeValue: in.Item.UniqueAttributeValue(),
+						UniqueAttributeValue: in.Item.UniqueAttributeValue,
 						Error:                err,
 					}
 				}
@@ -284,7 +231,7 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 				i.DebugChannel <- UpsertResult{
 					Context:              it.Context,
 					Type:                 it.Type,
-					UniqueAttributeValue: it.UniqueAttributeValue(),
+					UniqueAttributeValue: it.UniqueAttributeValue,
 					Attributes:           it.Attributes,
 					Error:                nil,
 				}

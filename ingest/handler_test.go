@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -126,7 +127,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Create ingestor
 	ir := Ingestor{
-		BatchSize:    2,
+		BatchSize:    1,
 		MaxWait:      (300 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),
@@ -181,6 +182,47 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 				t.Fatal(result.Error)
 			}
 		}
+	})
+
+	t.Run("Verify database contents", func(t *testing.T) {
+		var res *api.Response
+		var err error
+		var resultJSON map[string][]ItemNode
+		// var items []ItemNode
+
+		// Query to ensure that the items were all inserted okay
+		q := `{
+			Items(func: type(Item)) {
+				uid
+				dgraph.type
+				expand(_all_)
+			}
+		}`
+
+		res, err = d.NewTxn().Query(context.Background(), q)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Read the items back into memory
+		err = json.Unmarshal(res.GetJson(), &resultJSON)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Loop over all the messages and make sure that they are in the database
+		// for _, message := range messages {
+		// 	// Extract the itemNode
+		// 	in, err := MessageToItem(message)
+
+		// 	if err != nil {
+		// 		t.Fatal(err)
+		// 	}
+
+		// 	// Check that this item was found in the database
+		// }
 	})
 }
 
