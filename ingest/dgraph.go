@@ -204,8 +204,11 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 		Attributes         string `json:"Attributes,omitempty"`
 		Context            string `json:"Context,omitempty"`
 		GloballyUniqueName string `json:"GloballyUniqueName,omitempty"`
-		// TODO: Allow unmarshal of linked items
-		// LinkedItems          []*sdp.Reference `json:"-"`
+		LinkedItems        []struct {
+			Context              string `json:"Context,omitempty"`
+			Type                 string `json:"Type,omitempty"`
+			UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
+		}
 		Metadata             MetadataNode `json:"Metadata,omitempty"`
 		Type                 string       `json:"Type,omitempty"`
 		UniqueAttribute      string       `json:"UniqueAttribute,omitempty"`
@@ -221,14 +224,18 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 	i.Attributes = s.Attributes
 	i.Context = s.Context
 	i.GloballyUniqueName = s.GloballyUniqueName
-	// i.LinkedItems = s.LinkedItems
 	i.Metadata = s.Metadata
 	i.Type = s.Type
 	i.UniqueAttribute = s.UniqueAttribute
 	i.UniqueAttributeValue = s.UniqueAttributeValue
 
-	// i.LinkedItems = s.LinkedItems
-	// i.Metadata = s.Metadata
+	for _, l := range s.LinkedItems {
+		i.LinkedItems = append(i.LinkedItems, &sdp.Reference{
+			Context:              l.Context,
+			Type:                 l.Type,
+			UniqueAttributeValue: l.UniqueAttributeValue,
+		})
+	}
 
 	return nil
 }
