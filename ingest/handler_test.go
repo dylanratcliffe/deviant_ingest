@@ -187,16 +187,30 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	t.Run("Verify database contents", func(t *testing.T) {
 		var res *api.Response
 		var err error
-		var resultJSON map[string][]ItemNode
-		// var items []ItemNode
+		var results map[string][]ItemNode
+		var databaseItems []ItemNode
 
 		// Query to ensure that the items were all inserted okay
 		q := `{
 			Items(func: type(Item)) {
-				uid
-				dgraph.type
-				expand(_all_) {
-					expand(_all_)
+				Context
+				Type
+				UniqueAttribute
+				UniqueAttributeValue
+				GloballyUniqueName
+				Attributes
+				Metadata {
+					BackendName
+					RequestMethod
+					Timestamp
+					BackendDuration
+					BackendDurationPerItem
+					BackendPackage
+				}
+				LinkedItems {
+					Context
+					Type
+					UniqueAttributeValue
 				}
 			}
 		}`
@@ -208,24 +222,41 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		}
 
 		// Read the items back into memory
-		err = json.Unmarshal(res.GetJson(), &resultJSON)
+		err = json.Unmarshal(res.GetJson(), &results)
+		databaseItems = results["Items"]
 
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// Loop over all the messages and make sure that they are in the database
-		// for _, message := range messages {
-		// 	// Extract the itemNode
-		// 	in, err := MessageToItem(message)
+		for _, message := range messages {
+			// Extract the itemNode
+			in, err := MessageToItem(message)
 
-		// 	if err != nil {
-		// 		t.Fatal(err)
-		// 	}
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		// 	// Check that this item was found in the database
-		// }
+			// Check that this item was found in the database
+			if ItemNodeListContains(databaseItems, in) {
+				continue
+			}
+
+			t.Fatalf("Could not find item %v in database", in.GloballyUniqueName())
+		}
 	})
+}
+
+// ItemNodeListContains Returns whether an ItemNode list contains a particular
+// SDP Item
+func ItemNodeListContains(inl []ItemNode, x *sdp.Item) bool {
+	for _, i := range inl {
+		if i.GloballyUniqueName == x.GloballyUniqueName() {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadTestMessages Loads a bunch of test messages from the `testdata` folder.
