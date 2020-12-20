@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -201,14 +202,12 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 				UniqueAttributeValue
 				GloballyUniqueName
 				Attributes
-				Metadata {
-					BackendName
-					RequestMethod
-					Timestamp
-					BackendDuration
-					BackendDurationPerItem
-					BackendPackage
-				}
+				Metadata.BackendName
+				Metadata.RequestMethod
+				Metadata.Timestamp
+				Metadata.BackendDuration
+				Metadata.BackendDurationPerItem
+				Metadata.BackendPackage
 				LinkedItems {
 					Context
 					Type
@@ -258,6 +257,10 @@ func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
 			// If the one we are checking for is an older version, then just ignore it
 			if x.Metadata.Timestamp.AsTime().Before(y.Metadata.Timestamp.AsTime()) {
 				return true
+			}
+
+			if x.GloballyUniqueName == "127.0.0.1:32772.kube-system.serviceaccount.storage-provisioner" && y.GloballyUniqueName == "127.0.0.1:32772.kube-system.serviceaccount.storage-provisioner" {
+				fmt.Println("SDCSDC")
 			}
 
 			// Sort linked items so that comparison works

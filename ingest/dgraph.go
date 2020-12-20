@@ -175,7 +175,7 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 			Context              string `json:"Context,omitempty"`
 			Type                 string `json:"Type,omitempty"`
 			UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
-		}
+		} `json:"LinkedItems,omitempty"`
 		MetadataBackendName            string        `json:"Metadata.BackendName,omitempty"`
 		MetadataRequestMethod          string        `json:"Metadata.RequestMethod,omitempty"`
 		MetadataTimestamp              time.Time     `json:"Metadata.Timestamp,omitempty"`
@@ -232,7 +232,7 @@ func (i *ItemNode) Query() string {
 	// Query for the its own UID and the UIDs of the attributes and metadata
 	query = fmt.Sprintf(`
 		%v.item as %v(func: eq(GloballyUniqueName, "%v"))
-		%v.item.older as %v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v"))`,
+		%v.item.older as %v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v") OR NOT has(Metadata.Timestamp))`,
 		i.Hash(),
 		i.Hash(),
 		i.GloballyUniqueName,
@@ -244,11 +244,14 @@ func (i *ItemNode) Query() string {
 
 	// Add subsequent queries for linked items
 	for index, linkedItem := range i.LinkedItems {
-		q := fmt.Sprintf(`
-			%v.linkedItem%v(func: eq(GloballyUniqueName, "%v")) {
-				%v.linkedItem%v.item as uid
-			}
-		`, i.Hash(), index, linkedItem.GloballyUniqueName(), i.Hash(), index)
+		q := fmt.Sprintf(
+			"%v.linkedItem%v.item as %v.linkedItem%v(func: eq(GloballyUniqueName, \"%v\"))",
+			i.Hash(),
+			index,
+			i.Hash(),
+			index,
+			linkedItem.GloballyUniqueName(),
+		)
 
 		query = query + "\n" + q
 	}
@@ -284,8 +287,11 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 
 	for index, li := range i.LinkedItems {
 		liJSON, err := json.Marshal(map[string]string{
-			"uid":                fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index),
-			"GloballyUniqueName": li.GloballyUniqueName(),
+			"uid":                  fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index),
+			"GloballyUniqueName":   li.GloballyUniqueName(),
+			"Context":              li.GetContext(),
+			"Type":                 li.GetType(),
+			"UniqueAttributeValue": li.GetUniqueAttributeValue(),
 		})
 
 		if err == nil {
