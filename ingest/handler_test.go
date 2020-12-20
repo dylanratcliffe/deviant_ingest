@@ -256,7 +256,7 @@ func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
 	for _, y := range inl {
 		if x.GloballyUniqueName == y.GloballyUniqueName {
 			// If the one we are checking for is an older version, then just ignore it
-			if x.Metadata.Timestamp.Before(y.Metadata.Timestamp) {
+			if x.Metadata.Timestamp.AsTime().Before(y.Metadata.Timestamp.AsTime()) {
 				return true
 			}
 

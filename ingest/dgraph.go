@@ -15,6 +15,8 @@ import (
 	"github.com/dgraph-io/dgo/v200/protos/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // DGraph Stores details about the DGraph connection
@@ -65,7 +67,12 @@ type Item {
 	UniqueAttributeValue
 	GloballyUniqueName
 	Attributes
-	Metadata
+	Metadata.BackendName
+	Metadata.RequestMethod
+	Metadata.Timestamp
+	Metadata.BackendDuration
+	Metadata.BackendDurationPerItem
+	Metadata.BackendPackage
 	LinkedItems
 }
 
@@ -75,24 +82,13 @@ UniqueAttribute: string @index(exact) .
 UniqueAttributeValue: string @index(exact) .
 GloballyUniqueName: string @index(exact) .
 Attributes: string .
-Metadata: uid .
+Metadata.BackendName: string @index(exact) .
+Metadata.RequestMethod: string .
+Metadata.Timestamp: dateTime @index(hour) .
+Metadata.BackendDuration: int .
+Metadata.BackendDurationPerItem: int .
+Metadata.BackendPackage: string @index(exact) .
 LinkedItems: [uid] @reverse .
-
-type Metadata {
-	BackendName
-	RequestMethod
-	Timestamp
-	BackendDuration
-	BackendDurationPerItem
-	BackendPackage
-}
-
-BackendName: string @index(exact) .
-RequestMethod: string .
-Timestamp: dateTime @index(hour) .
-BackendDuration: int .
-BackendDurationPerItem: int .
-BackendPackage: string @index(exact) .
 `
 
 // SetupSchemas Will create the schemas required for ingest to work. This will
@@ -122,48 +118,11 @@ type ItemNode struct {
 	Type                 string           `json:"Type,omitempty"`
 	UniqueAttribute      string           `json:"UniqueAttribute,omitempty"`
 	Context              string           `json:"Context,omitempty"`
-	Metadata             MetadataNode     `json:"Metadata,omitempty"`
 	Attributes           string           `json:"Attributes,omitempty"`
 	UniqueAttributeValue string           `json:"UniqueAttributeValue,omitempty"`
 	GloballyUniqueName   string           `json:"GloballyUniqueName,omitempty"`
+	Metadata             *sdp.Metadata    `json:"-"`
 	LinkedItems          []*sdp.Reference `json:"-"`
-}
-
-// Mutations Returns a list of mutations that can be
-func (i *ItemNode) Mutations() []*api.Mutation {
-	var mutations []*api.Mutation
-
-	itemJSON, _ := json.Marshal(i)
-	metadataJSON, _ := json.Marshal(i.Metadata)
-
-	// Initial mutations to create the item and its attributes and metadata
-	mutations = []*api.Mutation{
-		{
-			SetJson: itemJSON,
-		},
-		{
-			SetJson: metadataJSON,
-		},
-	}
-
-	for index, li := range i.LinkedItems {
-		liJSON, err := json.Marshal(map[string]string{
-			"uid":                fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index),
-			"GloballyUniqueName": li.GloballyUniqueName(),
-		})
-
-		if err == nil {
-			// Insert a placeholder for the linked item if it doesn't already exist.
-			// This placeholder will be replaced with the actual item once it
-			// arrives
-			mutations = append(mutations, &api.Mutation{
-				Cond:    fmt.Sprintf("@if(eq(len(%v.linkedItem%v.item), 0))", i.Hash(), index),
-				SetJson: liJSON,
-			})
-		}
-	}
-
-	return mutations
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
@@ -171,7 +130,6 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 func (i ItemNode) MarshalJSON() ([]byte, error) {
 	var li []string
 	var uid string
-	var metadata string
 
 	// Create the linked items
 	for index := range i.LinkedItems {
@@ -180,21 +138,30 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 	}
 
 	uid = fmt.Sprintf("uid(%v.item)", i.Hash())
-	metadata = fmt.Sprintf("uid(%v.metadata)", i.Hash())
 
 	type Alias ItemNode
 	return json.Marshal(&struct {
-		UID         string   `json:"uid"`
-		DType       string   `json:"dgraph.type,omitempty"`
-		Metadata    string   `json:"Metadata,omitempty"`
-		LinkedItems []string `json:"LinkedItems"`
+		UID                            string        `json:"uid"`
+		DType                          string        `json:"dgraph.type,omitempty"`
+		LinkedItems                    []string      `json:"LinkedItems"`
+		MetadataBackendName            string        `json:"Metadata.BackendName,omitempty"`
+		MetadataRequestMethod          string        `json:"Metadata.RequestMethod,omitempty"`
+		MetadataTimestamp              time.Time     `json:"Metadata.Timestamp,omitempty"`
+		MetadataBackendDuration        time.Duration `json:"Metadata.BackendDuration,omitempty"`
+		MetadataBackendDurationPerItem time.Duration `json:"Metadata.BackendDurationPerItem,omitempty"`
+		MetadataBackendPackage         string        `json:"Metadata.BackendPackage,omitempty"`
 		Alias
 	}{
-		UID:         uid,
-		Metadata:    metadata,
-		DType:       "Item",
-		LinkedItems: li,
-		Alias:       (Alias)(i),
+		UID:                            uid,
+		DType:                          "Item",
+		LinkedItems:                    li,
+		MetadataBackendName:            i.Metadata.GetBackendName(),
+		MetadataRequestMethod:          i.Metadata.GetRequestMethod().String(),
+		MetadataTimestamp:              i.Metadata.GetTimestamp().AsTime(),
+		MetadataBackendDuration:        i.Metadata.GetBackendDuration().AsDuration(),
+		MetadataBackendDurationPerItem: i.Metadata.GetBackendDurationPerItem().AsDuration(),
+		MetadataBackendPackage:         i.Metadata.GetBackendPackage(),
+		Alias:                          (Alias)(i),
 	})
 }
 
@@ -209,10 +176,15 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 			Type                 string `json:"Type,omitempty"`
 			UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
 		}
-		Metadata             MetadataNode `json:"Metadata,omitempty"`
-		Type                 string       `json:"Type,omitempty"`
-		UniqueAttribute      string       `json:"UniqueAttribute,omitempty"`
-		UniqueAttributeValue string       `json:"UniqueAttributeValue,omitempty"`
+		MetadataBackendName            string        `json:"Metadata.BackendName,omitempty"`
+		MetadataRequestMethod          string        `json:"Metadata.RequestMethod,omitempty"`
+		MetadataTimestamp              time.Time     `json:"Metadata.Timestamp,omitempty"`
+		MetadataBackendDuration        time.Duration `json:"Metadata.BackendDuration,omitempty"`
+		MetadataBackendDurationPerItem time.Duration `json:"Metadata.BackendDurationPerItem,omitempty"`
+		MetadataBackendPackage         string        `json:"Metadata.BackendPackage,omitempty"`
+		Type                           string        `json:"Type,omitempty"`
+		UniqueAttribute                string        `json:"UniqueAttribute,omitempty"`
+		UniqueAttributeValue           string        `json:"UniqueAttributeValue,omitempty"`
 	}
 
 	err := json.Unmarshal(value, &s)
@@ -224,10 +196,14 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 	i.Attributes = s.Attributes
 	i.Context = s.Context
 	i.GloballyUniqueName = s.GloballyUniqueName
-	i.Metadata = s.Metadata
-
-	// We also need to ste the metadata's pointer reference
-	i.Metadata.itemNode = i
+	i.Metadata = &sdp.Metadata{
+		BackendName:            s.MetadataBackendName,
+		RequestMethod:          sdp.RequestMethod(sdp.RequestMethod_value[s.MetadataRequestMethod]),
+		Timestamp:              timestamppb.New(s.MetadataTimestamp),
+		BackendDuration:        durationpb.New(s.MetadataBackendDuration),
+		BackendDurationPerItem: durationpb.New(s.MetadataBackendDurationPerItem),
+		BackendPackage:         s.MetadataBackendPackage,
+	}
 
 	i.Type = s.Type
 	i.UniqueAttribute = s.UniqueAttribute
@@ -255,15 +231,15 @@ func (i *ItemNode) Query() string {
 
 	// Query for the its own UID and the UIDs of the attributes and metadata
 	query = fmt.Sprintf(`
-		%v(func: eq(GloballyUniqueName, "%v")) {
-			%v.item as uid
-			%v.metadata as Metadata
-		}
-	`,
+		%v.item as %v(func: eq(GloballyUniqueName, "%v"))
+		%v.item.older as %v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v"))`,
+		i.Hash(),
 		i.Hash(),
 		i.GloballyUniqueName,
 		i.Hash(),
 		i.Hash(),
+		i.Hash(),
+		i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339),
 	)
 
 	// Add subsequent queries for linked items
@@ -278,6 +254,52 @@ func (i *ItemNode) Query() string {
 	}
 
 	return query
+}
+
+// Mutations Returns a list of mutations that can be
+func (i *ItemNode) Mutations() []*api.Mutation {
+	var mutations []*api.Mutation
+
+	itemJSON, _ := json.Marshal(i)
+
+	// Create a condition for the upsert that follows this logic:
+	//
+	// * If the item doesn't exist create it
+	// * If the item does exist, and the timestamp is older than the one that we
+	//   have, update it
+	// * If our item is older, do nothing
+	cond := fmt.Sprintf(
+		"@if(eq(len(%v.item), 0) OR eq(len(%v.item.older), 1))",
+		i.Hash(),
+		i.Hash(),
+	)
+
+	// Initial mutations to create the item and its attributes and metadata
+	mutations = []*api.Mutation{
+		{
+			SetJson: itemJSON,
+			Cond:    cond,
+		},
+	}
+
+	for index, li := range i.LinkedItems {
+		liJSON, err := json.Marshal(map[string]string{
+			"uid":                fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index),
+			"GloballyUniqueName": li.GloballyUniqueName(),
+		})
+
+		if err == nil {
+			// Insert a placeholder for the linked item if it doesn't already exist.
+			// This placeholder will be replaced with the actual item once it
+			// arrives
+			mutations = append(mutations, &api.Mutation{
+				Cond:    fmt.Sprintf("@if(eq(len(%v.linkedItem%v.item), 0))", i.Hash(), index),
+				SetJson: liJSON,
+			})
+		}
+	}
+
+	return mutations
 }
 
 // Hash Returns a 10 character hash for the item. This is unlikely but not
@@ -297,58 +319,4 @@ func (i *ItemNode) Hash() string {
 	unpaddedEncoding = paddedEncoding.WithPadding(base32.NoPadding)
 
 	return unpaddedEncoding.EncodeToString(shaSum[:19])
-}
-
-// MetadataNode Represents metadata as serialized for DGraph
-type MetadataNode struct {
-	BackendName            string        `json:"BackendName,omitempty"`
-	RequestMethod          string        `json:"RequestMethod,omitempty"`
-	Timestamp              time.Time     `json:"Timestamp,omitempty"`
-	BackendDuration        time.Duration `json:"BackendDuration,omitempty"`
-	BackendDurationPerItem time.Duration `json:"BackendDurationPerItem,omitempty"`
-	BackendPackage         string        `json:"BackendPackage,omitempty"`
-	itemNode               *ItemNode
-}
-
-// MarshalJSON Custom marshalling functionality that adds derived fields
-// required for DGraph
-func (i MetadataNode) MarshalJSON() ([]byte, error) {
-	type Alias MetadataNode
-	return json.Marshal(&struct {
-		UID   string `json:"uid"`
-		DType string `json:"dgraph.type,omitempty"`
-		Alias
-	}{
-		UID:   fmt.Sprintf("uid(%v.metadata)", i.itemNode.Hash()),
-		DType: "Metadata",
-		Alias: (Alias)(i),
-	})
-}
-
-// UnmarshalJSON Converts from JSON to MetadataNode
-func (i *MetadataNode) UnmarshalJSON(value []byte) error {
-	var err error
-	var m struct {
-		BackendName            string        `json:"BackendName,omitempty"`
-		RequestMethod          string        `json:"RequestMethod,omitempty"`
-		Timestamp              time.Time     `json:"Timestamp,omitempty"`
-		BackendDuration        time.Duration `json:"BackendDuration,omitempty"`
-		BackendDurationPerItem time.Duration `json:"BackendDurationPerItem,omitempty"`
-		BackendPackage         string        `json:"BackendPackage,omitempty"`
-	}
-
-	err = json.Unmarshal(value, &m)
-
-	if err != nil {
-		return err
-	}
-
-	i.BackendName = m.BackendName
-	i.RequestMethod = m.RequestMethod
-	i.Timestamp = m.Timestamp
-	i.BackendDuration = m.BackendDuration
-	i.BackendDurationPerItem = m.BackendDurationPerItem
-	i.BackendPackage = m.BackendPackage
-
-	return nil
 }

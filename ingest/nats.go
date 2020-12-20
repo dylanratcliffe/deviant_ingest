@@ -117,15 +117,7 @@ func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
 		GloballyUniqueName:   item.GloballyUniqueName(),
 	}
 
-	itemNode.Metadata = MetadataNode{
-		BackendName:            item.GetMetadata().GetBackendName(),
-		RequestMethod:          item.GetMetadata().GetRequestMethod().String(),
-		Timestamp:              item.GetMetadata().GetTimestamp().AsTime(),
-		BackendPackage:         item.GetMetadata().GetBackendPackage(),
-		BackendDuration:        item.GetMetadata().GetBackendDuration().AsDuration(),
-		BackendDurationPerItem: item.GetMetadata().GetBackendDurationPerItem().AsDuration(),
-		itemNode:               &itemNode,
-	}
+	itemNode.Metadata = item.GetMetadata()
 
 	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
 
