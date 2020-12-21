@@ -259,10 +259,6 @@ func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
 				return true
 			}
 
-			if x.GloballyUniqueName == "127.0.0.1:32772.kube-system.serviceaccount.storage-provisioner" && y.GloballyUniqueName == "127.0.0.1:32772.kube-system.serviceaccount.storage-provisioner" {
-				fmt.Println("SDCSDC")
-			}
-
 			// Sort linked items so that comparison works
 			sort.Slice(x.LinkedItems, func(i, j int) bool {
 				return x.LinkedItems[i].GloballyUniqueName() < x.LinkedItems[j].GloballyUniqueName()
@@ -274,6 +270,13 @@ func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
 
 			if reflect.DeepEqual(x, y) {
 				return true
+			} else {
+				a, _ := x.MarshalJSON()
+				b, _ := y.MarshalJSON()
+
+				fmt.Println(string(a))
+				fmt.Println(string(b))
+				fmt.Println("WHYYOUNOWORK")
 			}
 		}
 	}

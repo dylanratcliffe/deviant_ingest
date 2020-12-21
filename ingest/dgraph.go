@@ -146,7 +146,7 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 		LinkedItems                    []string      `json:"LinkedItems"`
 		MetadataBackendName            string        `json:"Metadata.BackendName,omitempty"`
 		MetadataRequestMethod          string        `json:"Metadata.RequestMethod,omitempty"`
-		MetadataTimestamp              time.Time     `json:"Metadata.Timestamp,omitempty"`
+		MetadataTimestamp              string        `json:"Metadata.Timestamp,omitempty"`
 		MetadataBackendDuration        time.Duration `json:"Metadata.BackendDuration,omitempty"`
 		MetadataBackendDurationPerItem time.Duration `json:"Metadata.BackendDurationPerItem,omitempty"`
 		MetadataBackendPackage         string        `json:"Metadata.BackendPackage,omitempty"`
@@ -157,7 +157,7 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 		LinkedItems:                    li,
 		MetadataBackendName:            i.Metadata.GetBackendName(),
 		MetadataRequestMethod:          i.Metadata.GetRequestMethod().String(),
-		MetadataTimestamp:              i.Metadata.GetTimestamp().AsTime(),
+		MetadataTimestamp:              i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
 		MetadataBackendDuration:        i.Metadata.GetBackendDuration().AsDuration(),
 		MetadataBackendDurationPerItem: i.Metadata.GetBackendDurationPerItem().AsDuration(),
 		MetadataBackendPackage:         i.Metadata.GetBackendPackage(),
@@ -239,7 +239,7 @@ func (i *ItemNode) Query() string {
 		i.Hash(),
 		i.Hash(),
 		i.Hash(),
-		i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339),
+		i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
 	)
 
 	// Add subsequent queries for linked items

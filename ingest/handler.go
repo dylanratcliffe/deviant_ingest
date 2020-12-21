@@ -35,8 +35,6 @@ type UpsertResult struct {
 	Error                error
 }
 
-// TODO: Re-Add debugging
-
 // UpsertBatch Upserts a set of items into the database
 func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 	var req *api.Request
@@ -47,6 +45,35 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 	var queries []string
 	var mutations []*api.Mutation
 	var upsertTimeout string
+	var batchMap map[string]ItemNode
+
+	// Deduplicate the batch
+	batchMap = make(map[string]ItemNode)
+
+	for _, in := range batch {
+		existingItem, exists := batchMap[in.GloballyUniqueName]
+
+		if exists {
+			// Compare timestamps
+			existingTime := existingItem.Metadata.GetTimestamp().AsTime()
+			newTime := in.Metadata.GetTimestamp().AsTime()
+
+			// If the item is newer then add it to the batch. If it's older then
+			// just ignore it
+			if newTime.After(existingTime) {
+				batchMap[in.GloballyUniqueName] = in
+			}
+		} else {
+			batchMap[in.GloballyUniqueName] = in
+		}
+	}
+
+	// Replace the batch with the deduplicated batch
+	batch = make([]ItemNode, 0)
+
+	for _, v := range batchMap {
+		batch = append(batch, v)
+	}
 
 	// TODO: Ensure that this is reading from memory so it's fast
 	upsertTimeout = viper.GetString("dgraph.upsertTimeout")

@@ -1,6 +1,8 @@
 package ingest
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"time"
@@ -90,6 +92,37 @@ func MessageToItem(msg *nats.Msg) (*sdp.Item, error) {
 
 	err = proto.Unmarshal(msg.Data, item)
 
+	// I have noticed that sometimes you will unmarshal an empty linkeditem.
+	// Here we will check for them and remove if required. It will also
+	// deduplicate the items
+	if len(item.GetLinkedItems()) > 0 {
+		var newLinkedItems []*sdp.Reference
+		var newLinkedItemsMap map[string]*sdp.Reference
+
+		newLinkedItemsMap = make(map[string]*sdp.Reference)
+
+		// Check that the reference is valid
+		for _, li := range item.GetLinkedItems() {
+			if li.GetContext() == "" {
+				continue
+			}
+			if li.GetType() == "" {
+				continue
+			}
+			if li.GetUniqueAttributeValue() == "" {
+				continue
+			}
+			newLinkedItemsMap[li.GloballyUniqueName()] = li
+		}
+
+		// Not convert back to a map
+		for _, li := range newLinkedItemsMap {
+			newLinkedItems = append(newLinkedItems, li)
+		}
+
+		item.LinkedItems = newLinkedItems
+	}
+
 	return item, err
 }
 
@@ -121,8 +154,11 @@ func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
 
 	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
 
+	compactedBuffer := new(bytes.Buffer)
+	err = json.Compact(compactedBuffer, []byte(attributesJSON))
+
 	if err == nil {
-		itemNode.Attributes = string(attributesJSON)
+		itemNode.Attributes = string(compactedBuffer.Bytes())
 	}
 
 	return itemNode, err
