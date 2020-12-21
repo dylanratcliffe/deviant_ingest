@@ -2,8 +2,6 @@ package ingest
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -145,13 +143,6 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	// Make sure the schema is set up
 	SetupSchemas(d)
 
-	// Register a cleanup function to drop all
-	// t.Cleanup(func() {
-	// 	d.Alter(context.Background(), &api.Operation{
-	// 		DropAll: true,
-	// 	})
-	// })
-
 	t.Run("Handling items asynchronously", func(t *testing.T) {
 		go func() {
 			for _, message := range messages {
@@ -188,48 +179,6 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	})
 
 	t.Run("Verify database contents", func(t *testing.T) {
-		var res *api.Response
-		var err error
-		var results map[string][]ItemNode
-		var databaseItems []ItemNode
-
-		// Query to ensure that the items were all inserted okay
-		q := `{
-			Items(func: type(Item)) {
-				Context
-				Type
-				UniqueAttribute
-				UniqueAttributeValue
-				GloballyUniqueName
-				Attributes
-				Metadata.BackendName
-				Metadata.RequestMethod
-				Metadata.Timestamp
-				Metadata.BackendDuration
-				Metadata.BackendDurationPerItem
-				Metadata.BackendPackage
-				LinkedItems {
-					Context
-					Type
-					UniqueAttributeValue
-				}
-			}
-		}`
-
-		res, err = d.NewTxn().Query(context.Background(), q)
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Read the items back into memory
-		err = json.Unmarshal(res.GetJson(), &results)
-		databaseItems = results["Items"]
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
 		// Loop over all the messages and make sure that they are in the database
 		for _, message := range messages {
 			// Extract the itemNode
@@ -239,47 +188,60 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			databaseNode, err := QueryItem(d, in.GloballyUniqueName)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			// Check that this item was found in the database
-			if ItemNodeListContains(databaseItems, in) {
+			if ItemMatchy(databaseNode, in) {
 				continue
 			}
 
 			t.Fatalf("Could not find item %v in database", in.GloballyUniqueName)
 		}
 	})
+
+	// Register a cleanup function to drop all
+	// t.Cleanup(func() {
+	d.Alter(context.Background(), &api.Operation{
+		DropAll: true,
+	})
+	// })
 }
 
 // ItemNodeListContains Returns whether an ItemNode list contains a particular
 // SDP Item
 func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
-	for _, y := range inl {
-		if x.GloballyUniqueName == y.GloballyUniqueName {
-			// If the one we are checking for is an older version, then just ignore it
-			if x.Metadata.Timestamp.AsTime().Before(y.Metadata.Timestamp.AsTime()) {
-				return true
-			}
-
-			// Sort linked items so that comparison works
-			sort.Slice(x.LinkedItems, func(i, j int) bool {
-				return x.LinkedItems[i].GloballyUniqueName() < x.LinkedItems[j].GloballyUniqueName()
-			})
-
-			sort.Slice(y.LinkedItems, func(i, j int) bool {
-				return y.LinkedItems[i].GloballyUniqueName() < y.LinkedItems[j].GloballyUniqueName()
-			})
-
-			if reflect.DeepEqual(x, y) {
-				return true
-			} else {
-				a, _ := x.MarshalJSON()
-				b, _ := y.MarshalJSON()
-
-				fmt.Println(string(a))
-				fmt.Println(string(b))
-				fmt.Println("WHYYOUNOWORK")
-			}
+	for _, dbn := range inl {
+		if x.GloballyUniqueName == dbn.GloballyUniqueName {
+			return ItemMatchy(dbn, x)
 		}
 	}
+	return false
+}
+
+// ItemMatchy Returns true of the items are the same, ot of the item we're comparing is older than the database item
+func ItemMatchy(databaseItem ItemNode, otherItem ItemNode) bool {
+	// If the one we are checking for is an older version, then just ignore it
+	if otherItem.Metadata.Timestamp.AsTime().Before(databaseItem.Metadata.Timestamp.AsTime()) {
+		return true
+	}
+
+	// Sort linked items so that comparison works
+	sort.Slice(otherItem.LinkedItems, func(i, j int) bool {
+		return otherItem.LinkedItems[i].GloballyUniqueName() < otherItem.LinkedItems[j].GloballyUniqueName()
+	})
+
+	sort.Slice(databaseItem.LinkedItems, func(i, j int) bool {
+		return databaseItem.LinkedItems[i].GloballyUniqueName() < databaseItem.LinkedItems[j].GloballyUniqueName()
+	})
+
+	if reflect.DeepEqual(otherItem, databaseItem) {
+		return true
+	}
+
 	return false
 }
 

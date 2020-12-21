@@ -326,3 +326,53 @@ func (i *ItemNode) Hash() string {
 
 	return unpaddedEncoding.EncodeToString(shaSum[:19])
 }
+
+// QueryItem Queries a single item from the database
+func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
+	var res *api.Response
+	var err error
+	var results map[string][]ItemNode
+	var result ItemNode
+
+	// Query to ensure that the items were all inserted okay
+	q := fmt.Sprintf(`{
+			Items(func: eq(GloballyUniqueName, "%v")) {
+				Context
+				Type
+				UniqueAttribute
+				UniqueAttributeValue
+				GloballyUniqueName
+				Attributes
+				Metadata.BackendName
+				Metadata.RequestMethod
+				Metadata.Timestamp
+				Metadata.BackendDuration
+				Metadata.BackendDurationPerItem
+				Metadata.BackendPackage
+				LinkedItems {
+					Context
+					Type
+					UniqueAttributeValue
+				}
+			}
+		}`,
+		globallyUniqueName,
+	)
+
+	res, err = d.NewTxn().Query(context.Background(), q)
+
+	if err != nil {
+		return result, err
+	}
+
+	// Read the items back into memory
+	err = json.Unmarshal(res.GetJson(), &results)
+
+	if len(results["Items"]) > 1 {
+		return result, fmt.Errorf("Fund >1 item with the G.U.N: %v: %v", globallyUniqueName, results["Items"])
+	}
+
+	result = results["Items"][0]
+
+	return result, nil
+}

@@ -32,6 +32,7 @@ type UpsertResult struct {
 	Type                 string
 	UniqueAttributeValue string
 	Attributes           string
+	Request              *api.Request
 	Error                error
 }
 
