@@ -2,10 +2,10 @@ package ingest
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -129,7 +129,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	// Create ingestor
 	ir := Ingestor{
 		BatchSize:    1,
-		MaxWait:      (300 * time.Millisecond),
+		MaxWait:      (1000 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),
 	}
@@ -178,6 +178,9 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		}
 	})
 
+	// Let the database settle
+	time.Sleep(5000 * time.Millisecond)
+
 	t.Run("Verify database contents", func(t *testing.T) {
 		// Loop over all the messages and make sure that they are in the database
 		for _, message := range messages {
@@ -195,38 +198,30 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 			}
 
 			// Check that this item was found in the database
-			if ItemMatchy(databaseNode, in) {
+			err = ItemMatchy(databaseNode, in)
+
+			if err == nil {
 				continue
 			}
 
-			t.Fatalf("Could not find item %v in database", in.GloballyUniqueName)
+			t.Fatal(err)
 		}
 	})
 
 	// Register a cleanup function to drop all
-	// t.Cleanup(func() {
-	d.Alter(context.Background(), &api.Operation{
-		DropAll: true,
+	t.Cleanup(func() {
+		time.Sleep(500 * time.Millisecond)
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
 	})
-	// })
-}
-
-// ItemNodeListContains Returns whether an ItemNode list contains a particular
-// SDP Item
-func ItemNodeListContains(inl []ItemNode, x ItemNode) bool {
-	for _, dbn := range inl {
-		if x.GloballyUniqueName == dbn.GloballyUniqueName {
-			return ItemMatchy(dbn, x)
-		}
-	}
-	return false
 }
 
 // ItemMatchy Returns true of the items are the same, ot of the item we're comparing is older than the database item
-func ItemMatchy(databaseItem ItemNode, otherItem ItemNode) bool {
+func ItemMatchy(databaseItem ItemNode, otherItem ItemNode) error {
 	// If the one we are checking for is an older version, then just ignore it
 	if otherItem.Metadata.Timestamp.AsTime().Before(databaseItem.Metadata.Timestamp.AsTime()) {
-		return true
+		return nil
 	}
 
 	// Sort linked items so that comparison works
@@ -238,11 +233,7 @@ func ItemMatchy(databaseItem ItemNode, otherItem ItemNode) bool {
 		return databaseItem.LinkedItems[i].GloballyUniqueName() < databaseItem.LinkedItems[j].GloballyUniqueName()
 	})
 
-	if reflect.DeepEqual(otherItem, databaseItem) {
-		return true
-	}
-
-	return false
+	return ItemsEqual(otherItem, databaseItem)
 }
 
 // LoadTestMessages Loads a bunch of test messages from the `testdata` folder.
@@ -281,4 +272,134 @@ func LoadTestMessages() ([]*nats.Msg, error) {
 	}
 
 	return messages, nil
+}
+
+// ItemsEqual This checks equality between two ItemNode Structs. This is
+// required because the struct contains a mix of structs and protobuf objects
+// like Timestamp. These protobuf messages contain state that should not be
+// compared and is flagged as such with the DoNotCompare flag. However this is
+// not respected by reflect.DeepEqual
+func ItemsEqual(x, y ItemNode) error {
+	type Comparison struct {
+		Name string
+		X    interface{}
+		Y    interface{}
+	}
+	var comparisons []Comparison
+
+	comparisons = []Comparison{
+		{
+			Name: "Type",
+			X:    x.Type,
+			Y:    y.Type,
+		},
+		{
+			Name: "UniqueAttribute",
+			X:    x.UniqueAttribute,
+			Y:    y.UniqueAttribute,
+		},
+		{
+			Name: "Context",
+			X:    x.Context,
+			Y:    y.Context,
+		},
+		{
+			Name: "Attributes",
+			X:    x.Attributes,
+			Y:    y.Attributes,
+		},
+		{
+			Name: "UniqueAttributeValue",
+			X:    x.UniqueAttributeValue,
+			Y:    y.UniqueAttributeValue,
+		},
+		{
+			Name: "GloballyUniqueName",
+			X:    x.GloballyUniqueName,
+			Y:    y.GloballyUniqueName,
+		},
+		{
+			Name: "Hash",
+			X:    x.Hash,
+			Y:    y.Hash,
+		},
+		{
+			Name: "Metadata.BackendName",
+			X:    x.Metadata.GetBackendName(),
+			Y:    y.Metadata.GetBackendName(),
+		},
+		{
+			Name: "Metadata.RequestMethod",
+			X:    x.Metadata.GetRequestMethod(),
+			Y:    y.Metadata.GetRequestMethod(),
+		},
+		{
+			Name: "Metadata.Timestamp.Seconds",
+			X:    x.Metadata.GetTimestamp().GetSeconds(),
+			Y:    y.Metadata.GetTimestamp().GetSeconds(),
+		},
+		{
+			Name: "Metadata.Timestamp.Nanos",
+			X:    x.Metadata.GetTimestamp().GetNanos(),
+			Y:    y.Metadata.GetTimestamp().GetNanos(),
+		},
+		{
+			Name: "Metadata.BackendDuration.Seconds",
+			X:    x.Metadata.GetBackendDuration().GetSeconds(),
+			Y:    y.Metadata.GetBackendDuration().GetSeconds(),
+		},
+		{
+			Name: "Metadata.BackendDuration.Nanos",
+			X:    x.Metadata.GetBackendDuration().GetNanos(),
+			Y:    y.Metadata.GetBackendDuration().GetNanos(),
+		},
+		{
+			Name: "Metadata.BackendDurationPerItem.Seconds",
+			X:    x.Metadata.GetBackendDurationPerItem().GetSeconds(),
+			Y:    y.Metadata.GetBackendDurationPerItem().GetSeconds(),
+		},
+		{
+			Name: "Metadata.BackendDurationPerItem.Nanos",
+			X:    x.Metadata.GetBackendDurationPerItem().GetNanos(),
+			Y:    y.Metadata.GetBackendDurationPerItem().GetNanos(),
+		},
+		{
+			Name: "Metadata.BackendPackage",
+			X:    x.Metadata.GetBackendPackage(),
+			Y:    y.Metadata.GetBackendPackage(),
+		},
+		{
+			Name: "len(LinkedItem)",
+			X:    len(x.LinkedItems),
+			Y:    len(x.LinkedItems),
+		},
+	}
+
+	for i := range x.LinkedItems {
+		comparisons = append(comparisons, []Comparison{
+			{
+				Name: fmt.Sprintf("LinkedItems.%v.Type", i),
+				X:    x.LinkedItems[i].GetType(),
+				Y:    y.LinkedItems[i].GetType(),
+			},
+			{
+				Name: fmt.Sprintf("LinkedItems.%v.UniqueAttributeValue", i),
+				X:    x.LinkedItems[i].GetUniqueAttributeValue(),
+				Y:    y.LinkedItems[i].GetUniqueAttributeValue(),
+			},
+			{
+				Name: fmt.Sprintf("LinkedItems.%v.Context", i),
+				X:    x.LinkedItems[i].GetContext(),
+				Y:    y.LinkedItems[i].GetContext(),
+			},
+		}...)
+	}
+
+	for _, c := range comparisons {
+		if c.X != c.Y {
+			return fmt.Errorf("%v did not match: %v != %v", c.Name, c.X, c.Y)
+		}
+	}
+
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
+	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -47,9 +48,11 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 	var mutations []*api.Mutation
 	var upsertTimeout string
 	var batchMap map[string]ItemNode
+	var linkedItemMap map[string]*sdp.Reference
 
-	// Deduplicate the batch
+	// Deduplicate the batch of items and the linked items
 	batchMap = make(map[string]ItemNode)
+	linkedItemMap = make(map[string]*sdp.Reference)
 
 	for _, in := range batch {
 		existingItem, exists := batchMap[in.GloballyUniqueName]
@@ -66,6 +69,13 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 			}
 		} else {
 			batchMap[in.GloballyUniqueName] = in
+		}
+
+		// Add the linked items
+		for _, li := range in.LinkedItems {
+			// No need to do any actual checking here since all references are
+			// equal
+			linkedItemMap[li.Hash()] = li
 		}
 	}
 
@@ -95,10 +105,16 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 		CommitNow: true,
 	}
 
-	// Extract the queries and mutations
+	// Extract the queries and mutations from the items
 	for _, itemNode := range batch {
 		queries = append(queries, itemNode.Query())
-		mutations = append(mutations, itemNode.Mutations()...)
+		mutations = append(mutations, itemNode.Mutation())
+	}
+
+	// Extract mutations for linked items
+	for _, li := range linkedItemMap {
+		queries = append(queries, ReferenceToQuery(li))
+		mutations = append(mutations, ReferenceToMutation(li))
 	}
 
 	// Combine Queries into a single valid string

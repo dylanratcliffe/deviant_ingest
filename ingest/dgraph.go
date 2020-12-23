@@ -2,8 +2,6 @@ package ingest
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -67,6 +65,7 @@ type Item {
 	UniqueAttributeValue
 	GloballyUniqueName
 	Attributes
+	Hash
 	Metadata.BackendName
 	Metadata.RequestMethod
 	Metadata.Timestamp
@@ -82,6 +81,7 @@ UniqueAttribute: string @index(exact) .
 UniqueAttributeValue: string @index(exact) .
 GloballyUniqueName: string @index(exact) .
 Attributes: string .
+Hash: string .
 Metadata.BackendName: string @index(exact) .
 Metadata.RequestMethod: string .
 Metadata.Timestamp: dateTime @index(hour) .
@@ -121,6 +121,7 @@ type ItemNode struct {
 	Attributes           string           `json:"Attributes,omitempty"`
 	UniqueAttributeValue string           `json:"UniqueAttributeValue,omitempty"`
 	GloballyUniqueName   string           `json:"GloballyUniqueName,omitempty"`
+	Hash                 string           `json:"Hash,omitempty"`
 	Metadata             *sdp.Metadata    `json:"-"`
 	LinkedItems          []*sdp.Reference `json:"-"`
 }
@@ -132,12 +133,12 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 	var uid string
 
 	// Create the linked items
-	for index := range i.LinkedItems {
+	for _, item := range i.LinkedItems {
 		// This refers to a variable that was created during the initial query
-		li = append(li, fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index))
+		li = append(li, fmt.Sprintf("uid(linkedItem.%v.item)", item.Hash()))
 	}
 
-	uid = fmt.Sprintf("uid(%v.item)", i.Hash())
+	uid = fmt.Sprintf("uid(%v.item)", i.Hash)
 
 	type Alias ItemNode
 	return json.Marshal(&struct {
@@ -171,6 +172,7 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 		Attributes         string `json:"Attributes,omitempty"`
 		Context            string `json:"Context,omitempty"`
 		GloballyUniqueName string `json:"GloballyUniqueName,omitempty"`
+		Hash               string `json:"Hash,omitempty"`
 		LinkedItems        []struct {
 			Context              string `json:"Context,omitempty"`
 			Type                 string `json:"Type,omitempty"`
@@ -208,6 +210,7 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 	i.Type = s.Type
 	i.UniqueAttribute = s.UniqueAttribute
 	i.UniqueAttributeValue = s.UniqueAttributeValue
+	i.Hash = s.Hash
 
 	for _, l := range s.LinkedItems {
 		i.LinkedItems = append(i.LinkedItems, &sdp.Reference{
@@ -227,42 +230,22 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 //   * `{GloballyUniqueName}.attributes`: UID of this item's attributes
 //   * `{GloballyUniqueName}.metadata`: UID of this item's metadata
 func (i *ItemNode) Query() string {
-	var query string
-
 	// Query for the its own UID and the UIDs of the attributes and metadata
-	query = fmt.Sprintf(`
+	return fmt.Sprintf(`
 		%v.item as %v(func: eq(GloballyUniqueName, "%v"))
 		%v.item.older as %v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v") OR NOT has(Metadata.Timestamp))`,
-		i.Hash(),
-		i.Hash(),
+		i.Hash,
+		i.Hash,
 		i.GloballyUniqueName,
-		i.Hash(),
-		i.Hash(),
-		i.Hash(),
+		i.Hash,
+		i.Hash,
+		i.Hash,
 		i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
 	)
-
-	// Add subsequent queries for linked items
-	for index, linkedItem := range i.LinkedItems {
-		q := fmt.Sprintf(
-			"%v.linkedItem%v.item as %v.linkedItem%v(func: eq(GloballyUniqueName, \"%v\"))",
-			i.Hash(),
-			index,
-			i.Hash(),
-			index,
-			linkedItem.GloballyUniqueName(),
-		)
-
-		query = query + "\n" + q
-	}
-
-	return query
 }
 
-// Mutations Returns a list of mutations that can be
-func (i *ItemNode) Mutations() []*api.Mutation {
-	var mutations []*api.Mutation
-
+// Mutation Returns a list of mutations that can be
+func (i *ItemNode) Mutation() *api.Mutation {
 	itemJSON, _ := json.Marshal(i)
 
 	// Create a condition for the upsert that follows this logic:
@@ -273,58 +256,57 @@ func (i *ItemNode) Mutations() []*api.Mutation {
 	// * If our item is older, do nothing
 	cond := fmt.Sprintf(
 		"@if(eq(len(%v.item), 0) OR eq(len(%v.item.older), 1))",
-		i.Hash(),
-		i.Hash(),
+		i.Hash,
+		i.Hash,
 	)
 
 	// Initial mutations to create the item and its attributes and metadata
-	mutations = []*api.Mutation{
-		{
-			SetJson: itemJSON,
-			Cond:    cond,
-		},
+	return &api.Mutation{
+		SetJson: itemJSON,
+		Cond:    cond,
 	}
+}
 
-	for index, li := range i.LinkedItems {
-		liJSON, err := json.Marshal(map[string]string{
-			"uid":                  fmt.Sprintf("uid(%v.linkedItem%v.item)", i.Hash(), index),
-			"GloballyUniqueName":   li.GloballyUniqueName(),
-			"Context":              li.GetContext(),
-			"Type":                 li.GetType(),
-			"UniqueAttributeValue": li.GetUniqueAttributeValue(),
-		})
+// ReferenceToQuery Converts an SDP reference to a query which populates a
+// variable named linkedItem.{hash}.item which contains the UID of the item if
+// it exists in the database, or a new UID if it doesn't
+func ReferenceToQuery(ref *sdp.Reference) string {
+	return fmt.Sprintf(
+		"linkedItem.%v.item as linkedItem.%v.item(func: eq(GloballyUniqueName, \"%v\"))",
+		ref.Hash(),
+		ref.Hash(),
+		ref.GloballyUniqueName(),
+	)
+}
 
-		if err == nil {
-			// Insert a placeholder for the linked item if it doesn't already exist.
-			// This placeholder will be replaced with the actual item once it
-			// arrives
-			mutations = append(mutations, &api.Mutation{
-				Cond:    fmt.Sprintf("@if(eq(len(%v.linkedItem%v.item), 0))", i.Hash(), index),
-				SetJson: liJSON,
-			})
+// ReferenceToMutation Converts a reference into a mutation that creates a
+// placeholder reference if the item doesn't yet exist in the database
+func ReferenceToMutation(li *sdp.Reference) *api.Mutation {
+	// TODO: I need to fix this. If I have a single batch that has many
+	// items that are linked to the same linked item I will end up with
+	// multiple placeholders that are identical. Probably I need to be using
+	// the hash or the li or something like that? So that I can be
+	// sure that if two items in the same batch have the same linkeditem
+	// they only end up with the one placeholder bing created
+	liJSON, err := json.Marshal(map[string]string{
+		"uid":                  fmt.Sprintf("uid(linkedItem.%v.item)", li.Hash()),
+		"GloballyUniqueName":   li.GloballyUniqueName(),
+		"Context":              li.GetContext(),
+		"Type":                 li.GetType(),
+		"UniqueAttributeValue": li.GetUniqueAttributeValue(),
+	})
+
+	if err == nil {
+		// Insert a placeholder for the linked item if it doesn't already exist.
+		// This placeholder will be replaced with the actual item once it
+		// arrives
+		return &api.Mutation{
+			Cond:    fmt.Sprintf("@if(eq(len(linkedItem.%v.item), 0))", li.Hash()),
+			SetJson: liJSON,
 		}
 	}
 
-	return mutations
-}
-
-// Hash Returns a 10 character hash for the item. This is unlikely but not
-// guaranteed to be unique
-func (i *ItemNode) Hash() string {
-	var shaSum [20]byte
-	var paddedEncoding *base32.Encoding
-	var unpaddedEncoding *base32.Encoding
-
-	shaSum = sha1.Sum([]byte(fmt.Sprint(i.GloballyUniqueName, i.Metadata.Timestamp)))
-
-	// We need to specify a custom encoding here since dGraph has fairly struct
-	// requirements aboout what name a variable
-	paddedEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEF")
-
-	// We also can't have padding since "=" is not allowed in variable names
-	unpaddedEncoding = paddedEncoding.WithPadding(base32.NoPadding)
-
-	return unpaddedEncoding.EncodeToString(shaSum[:19])
+	return nil
 }
 
 // QueryItem Queries a single item from the database
@@ -343,6 +325,7 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 				UniqueAttributeValue
 				GloballyUniqueName
 				Attributes
+				Hash
 				Metadata.BackendName
 				Metadata.RequestMethod
 				Metadata.Timestamp
@@ -369,7 +352,7 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 	err = json.Unmarshal(res.GetJson(), &results)
 
 	if len(results["Items"]) > 1 {
-		return result, fmt.Errorf("Fund >1 item with the G.U.N: %v: %v", globallyUniqueName, results["Items"])
+		return result, fmt.Errorf("Found >1 item with the GloballyUniqueName: %v JSON Output:\n%v", globallyUniqueName, string(res.GetJson()))
 	}
 
 	result = results["Items"][0]

@@ -148,6 +148,7 @@ func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
 		LinkedItems:          item.GetLinkedItems(),
 		UniqueAttributeValue: item.UniqueAttributeValue(),
 		GloballyUniqueName:   item.GloballyUniqueName(),
+		Hash:                 item.Hash(),
 	}
 
 	itemNode.Metadata = item.GetMetadata()
