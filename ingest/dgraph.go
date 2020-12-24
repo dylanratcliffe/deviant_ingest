@@ -76,19 +76,19 @@ type Item {
 	LinkedItems
 }
 
-Context: string @index(fulltext) .
+Context: string @index(exact) .
 Type: string @index(exact) .
 UniqueAttribute: string @index(exact) .
 UniqueAttributeValue: string @index(exact) .
 GloballyUniqueName: string @index(exact) .
-Attributes: string .
+Attributes: string @index(hash) @upsert .
 Hash: string @index(exact) .
-Metadata.BackendName: string @index(exact) .
-Metadata.RequestMethod: string .
-Metadata.Timestamp: dateTime @index(hour) .
-Metadata.BackendDuration: int .
-Metadata.BackendDurationPerItem: int .
-Metadata.BackendPackage: string @index(exact) .
+Metadata.BackendName: string @index(exact) @upsert .
+Metadata.RequestMethod: string @index(exact) @upsert .
+Metadata.Timestamp: dateTime @index(hour) @upsert .
+Metadata.BackendDuration: int @index(int) @upsert .
+Metadata.BackendDurationPerItem: int @index(int) @upsert .
+Metadata.BackendPackage: string @index(exact) @upsert .
 LinkedItems: [uid] @reverse .
 `
 

@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/dgraph-io/dgo/v200 v200.0.0-20201023081658-a9ad93fe6ebd
-	github.com/dylanratcliffe/sdp v0.0.0-20201224094009-cca495c6fb33
+	github.com/dylanratcliffe/sdp v0.0.0-20201224121817-3a8937c31e06
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/google/go-cmp v0.5.4 // indirect
