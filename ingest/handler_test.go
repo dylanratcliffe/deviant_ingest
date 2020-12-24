@@ -128,7 +128,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Create ingestor
 	ir := Ingestor{
-		BatchSize:    1,
+		BatchSize:    50,
 		MaxWait:      (1000 * time.Millisecond),
 		Dgraph:       d,
 		DebugChannel: make(chan UpsertResult, 10000),
@@ -178,9 +178,6 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		}
 	})
 
-	// Let the database settle
-	time.Sleep(5000 * time.Millisecond)
-
 	t.Run("Verify database contents", func(t *testing.T) {
 		// Loop over all the messages and make sure that they are in the database
 		for _, message := range messages {
@@ -210,7 +207,6 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 	// Register a cleanup function to drop all
 	t.Cleanup(func() {
-		time.Sleep(500 * time.Millisecond)
 		d.Alter(context.Background(), &api.Operation{
 			DropAll: true,
 		})
@@ -226,11 +222,11 @@ func ItemMatchy(databaseItem ItemNode, otherItem ItemNode) error {
 
 	// Sort linked items so that comparison works
 	sort.Slice(otherItem.LinkedItems, func(i, j int) bool {
-		return otherItem.LinkedItems[i].GloballyUniqueName() < otherItem.LinkedItems[j].GloballyUniqueName()
+		return otherItem.LinkedItems[i].GloballyUniqueName < otherItem.LinkedItems[j].GloballyUniqueName
 	})
 
 	sort.Slice(databaseItem.LinkedItems, func(i, j int) bool {
-		return databaseItem.LinkedItems[i].GloballyUniqueName() < databaseItem.LinkedItems[j].GloballyUniqueName()
+		return databaseItem.LinkedItems[i].GloballyUniqueName < databaseItem.LinkedItems[j].GloballyUniqueName
 	})
 
 	return ItemsEqual(otherItem, databaseItem)
@@ -379,18 +375,18 @@ func ItemsEqual(x, y ItemNode) error {
 		comparisons = append(comparisons, []Comparison{
 			{
 				Name: fmt.Sprintf("LinkedItems.%v.Type", i),
-				X:    x.LinkedItems[i].GetType(),
-				Y:    y.LinkedItems[i].GetType(),
+				X:    x.LinkedItems[i].Type,
+				Y:    y.LinkedItems[i].Type,
 			},
 			{
 				Name: fmt.Sprintf("LinkedItems.%v.UniqueAttributeValue", i),
-				X:    x.LinkedItems[i].GetUniqueAttributeValue(),
-				Y:    y.LinkedItems[i].GetUniqueAttributeValue(),
+				X:    x.LinkedItems[i].UniqueAttributeValue,
+				Y:    y.LinkedItems[i].UniqueAttributeValue,
 			},
 			{
 				Name: fmt.Sprintf("LinkedItems.%v.Context", i),
-				X:    x.LinkedItems[i].GetContext(),
-				Y:    y.LinkedItems[i].GetContext(),
+				X:    x.LinkedItems[i].Context,
+				Y:    y.LinkedItems[i].Context,
 			},
 		}...)
 	}

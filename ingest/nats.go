@@ -145,10 +145,19 @@ func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
 		Type:                 item.GetType(),
 		UniqueAttribute:      item.GetUniqueAttribute(),
 		Context:              item.GetContext(),
-		LinkedItems:          item.GetLinkedItems(),
 		UniqueAttributeValue: item.UniqueAttributeValue(),
 		GloballyUniqueName:   item.GloballyUniqueName(),
 		Hash:                 item.Hash(),
+	}
+
+	for _, li := range item.GetLinkedItems() {
+		itemNode.LinkedItems = append(itemNode.LinkedItems, ItemNode{
+			Context:              li.GetContext(),
+			Type:                 li.GetType(),
+			UniqueAttributeValue: li.GetUniqueAttributeValue(),
+			Hash:                 li.Hash(),
+			GloballyUniqueName:   li.GloballyUniqueName(),
+		})
 	}
 
 	itemNode.Metadata = item.GetMetadata()

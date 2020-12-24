@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dylanratcliffe/sdp/go/sdp"
@@ -81,7 +82,7 @@ UniqueAttribute: string @index(exact) .
 UniqueAttributeValue: string @index(exact) .
 GloballyUniqueName: string @index(exact) .
 Attributes: string .
-Hash: string .
+Hash: string @index(exact) .
 Metadata.BackendName: string @index(exact) .
 Metadata.RequestMethod: string .
 Metadata.Timestamp: dateTime @index(hour) .
@@ -115,15 +116,135 @@ type ItemInsertion struct {
 // ItemNode Represents an item, it also is able to return a full list of
 // mutations
 type ItemNode struct {
-	Type                 string           `json:"Type,omitempty"`
-	UniqueAttribute      string           `json:"UniqueAttribute,omitempty"`
-	Context              string           `json:"Context,omitempty"`
-	Attributes           string           `json:"Attributes,omitempty"`
-	UniqueAttributeValue string           `json:"UniqueAttributeValue,omitempty"`
-	GloballyUniqueName   string           `json:"GloballyUniqueName,omitempty"`
-	Hash                 string           `json:"Hash,omitempty"`
-	Metadata             *sdp.Metadata    `json:"-"`
-	LinkedItems          []*sdp.Reference `json:"-"`
+	Type                 string        `json:"Type,omitempty"`
+	UniqueAttribute      string        `json:"UniqueAttribute,omitempty"`
+	Context              string        `json:"Context,omitempty"`
+	Attributes           string        `json:"Attributes,omitempty"`
+	UniqueAttributeValue string        `json:"UniqueAttributeValue,omitempty"`
+	GloballyUniqueName   string        `json:"GloballyUniqueName,omitempty"`
+	Hash                 string        `json:"Hash,omitempty"`
+	Metadata             *sdp.Metadata `json:"-"`
+	LinkedItems          ItemNodes     `json:"-"`
+}
+
+// IsPlaceholder Returns true if the item is just a placeholder
+func (i ItemNode) IsPlaceholder() bool {
+	return (i.Metadata == nil || i.Attributes == "")
+}
+
+// TODO: all of these new objects need a Queries() and Mutations() method
+
+// ItemNodes Represents a list of ItemNodes in dgraph
+type ItemNodes []ItemNode
+
+// LinkedItems Returns the linked items as ItemNodes
+func (i ItemNodes) LinkedItems() ItemNodes {
+	in := make(ItemNodes, 0)
+
+	for _, item := range i {
+		for _, li := range item.LinkedItems {
+			in = append(in, li)
+		}
+	}
+
+	return in
+}
+
+// Deduplicate Removes duplicate items, with clashes being resolved as follows:
+//
+// * Newer items beat older items
+// * Complete items beat items that are only references/placeholders (i.e.
+//   those that  do not have attributes and metadata)
+//
+func (i ItemNodes) Deduplicate() ItemNodes {
+	m := make(map[string]ItemNode)
+
+	// Resolve duplicates
+	for _, in := range i {
+		// Check to see if the item already exists in the map
+		existingItem, exists := m[in.Hash]
+
+		if exists == false {
+			// If the item does not yet exist then just add it
+			m[in.Hash] = in
+		} else {
+			// If the item is already in the map then we need to apply
+			// deduplication logic
+
+			// If the existing item is a placeholder then we will replace it
+			// regardless
+			if existingItem.IsPlaceholder() {
+				m[in.Hash] = in
+			} else {
+				// Compare timestamps
+				existingTime := existingItem.Metadata.GetTimestamp().AsTime()
+				newTime := in.Metadata.GetTimestamp().AsTime()
+
+				// If the item is newer then add it to the batch. If it's older then
+				// just ignore it
+				if newTime.After(existingTime) {
+					m[in.Hash] = in
+				}
+			}
+		}
+	}
+
+	// Convert back into a slice
+	newI := make(ItemNodes, 0)
+
+	for _, in := range m {
+		newI = append(newI, in)
+	}
+
+	return newI
+}
+
+// Queries Is a list of dgraph queries
+type Queries []Query
+
+func (q Queries) String() string {
+	var queryStrings []string
+
+	for _, qi := range q {
+		queryStrings = append(queryStrings, qi.String())
+	}
+
+	return "{" + strings.Join(queryStrings, "\n") + "}"
+}
+
+// Deduplicate Removes duplicate queries
+func (q Queries) Deduplicate() Queries {
+	queriesMap := make(map[string]Query)
+
+	for _, qi := range q {
+		queriesMap[qi.VariableName] = qi
+	}
+
+	newQ := make(Queries, 0)
+
+	for _, qi := range queriesMap {
+		newQ = append(newQ, qi)
+	}
+
+	return newQ
+}
+
+// Query Represents a dgraph query
+type Query struct {
+	VariableName string
+	QueryFunc    string
+}
+
+func (q Query) String() string {
+	var s string
+
+	if q.VariableName != "" {
+		s = fmt.Sprintf(`%v as `, q.VariableName)
+	}
+
+	s = s + q.QueryFunc
+
+	return s
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
@@ -135,7 +256,7 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 	// Create the linked items
 	for _, item := range i.LinkedItems {
 		// This refers to a variable that was created during the initial query
-		li = append(li, fmt.Sprintf("uid(linkedItem.%v.item)", item.Hash()))
+		li = append(li, fmt.Sprintf("uid(%v.item)", item.Hash))
 	}
 
 	uid = fmt.Sprintf("uid(%v.item)", i.Hash)
@@ -213,39 +334,61 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 	i.Hash = s.Hash
 
 	for _, l := range s.LinkedItems {
-		i.LinkedItems = append(i.LinkedItems, &sdp.Reference{
+		// First create an SDP reference since this is what this was created
+		// from. We will use some of the methods from this reference
+		r := sdp.Reference{
 			Context:              l.Context,
 			Type:                 l.Type,
 			UniqueAttributeValue: l.UniqueAttributeValue,
+		}
+
+		// Convert from a reference to a node since this is what will actually
+		// be stopred in the database
+		i.LinkedItems = append(i.LinkedItems, ItemNode{
+			Context:              r.GetContext(),
+			Type:                 r.GetType(),
+			UniqueAttributeValue: r.GetUniqueAttributeValue(),
+			Hash:                 r.Hash(),
+			GloballyUniqueName:   r.GloballyUniqueName(),
 		})
 	}
 
 	return nil
 }
 
-// Query returns a query that should match specifically this item. It will also
-// export the following variables:
+// Queries Returns the queries that should match specifically this item. It will
+// also export the following variables:
 //
 //   * `{GloballyUniqueName}.item`: UID of this item
 //   * `{GloballyUniqueName}.attributes`: UID of this item's attributes
 //   * `{GloballyUniqueName}.metadata`: UID of this item's metadata
-func (i *ItemNode) Query() string {
-	// Query for the its own UID and the UIDs of the attributes and metadata
-	return fmt.Sprintf(`
-		%v.item as %v(func: eq(GloballyUniqueName, "%v"))
-		%v.item.older as %v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v") OR NOT has(Metadata.Timestamp))`,
-		i.Hash,
-		i.Hash,
-		i.GloballyUniqueName,
-		i.Hash,
-		i.Hash,
-		i.Hash,
-		i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
-	)
+func (i *ItemNode) Queries() Queries {
+	q := make(Queries, 0)
+
+	q = append(q, Query{
+		VariableName: fmt.Sprintf(`%v.item`, i.Hash),
+		QueryFunc:    fmt.Sprintf(`%v(func: eq(Hash, "%v"))`, i.Hash, i.Hash),
+	})
+
+	if i.Metadata != nil {
+		q = append(q, Query{
+			VariableName: fmt.Sprintf(`%v.item.older`, i.Hash),
+			QueryFunc: fmt.Sprintf(
+				`%v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v") OR NOT has(Metadata.Timestamp))`,
+				i.Hash,
+				i.Hash,
+				i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
+			),
+		})
+	}
+
+	return q
 }
 
 // Mutation Returns a list of mutations that can be
 func (i *ItemNode) Mutation() *api.Mutation {
+	var cond string
+
 	itemJSON, _ := json.Marshal(i)
 
 	// Create a condition for the upsert that follows this logic:
@@ -254,59 +397,24 @@ func (i *ItemNode) Mutation() *api.Mutation {
 	// * If the item does exist, and the timestamp is older than the one that we
 	//   have, update it
 	// * If our item is older, do nothing
-	cond := fmt.Sprintf(
-		"@if(eq(len(%v.item), 0) OR eq(len(%v.item.older), 1))",
-		i.Hash,
-		i.Hash,
-	)
+	if i.Metadata == nil {
+		cond = fmt.Sprintf(
+			"@if(eq(len(%v.item), 0))",
+			i.Hash,
+		)
+	} else {
+		cond = fmt.Sprintf(
+			"@if(eq(len(%v.item), 0) OR eq(len(%v.item.older), 1))",
+			i.Hash,
+			i.Hash,
+		)
+	}
 
 	// Initial mutations to create the item and its attributes and metadata
 	return &api.Mutation{
 		SetJson: itemJSON,
 		Cond:    cond,
 	}
-}
-
-// ReferenceToQuery Converts an SDP reference to a query which populates a
-// variable named linkedItem.{hash}.item which contains the UID of the item if
-// it exists in the database, or a new UID if it doesn't
-func ReferenceToQuery(ref *sdp.Reference) string {
-	return fmt.Sprintf(
-		"linkedItem.%v.item as linkedItem.%v.item(func: eq(GloballyUniqueName, \"%v\"))",
-		ref.Hash(),
-		ref.Hash(),
-		ref.GloballyUniqueName(),
-	)
-}
-
-// ReferenceToMutation Converts a reference into a mutation that creates a
-// placeholder reference if the item doesn't yet exist in the database
-func ReferenceToMutation(li *sdp.Reference) *api.Mutation {
-	// TODO: I need to fix this. If I have a single batch that has many
-	// items that are linked to the same linked item I will end up with
-	// multiple placeholders that are identical. Probably I need to be using
-	// the hash or the li or something like that? So that I can be
-	// sure that if two items in the same batch have the same linkeditem
-	// they only end up with the one placeholder bing created
-	liJSON, err := json.Marshal(map[string]string{
-		"uid":                  fmt.Sprintf("uid(linkedItem.%v.item)", li.Hash()),
-		"GloballyUniqueName":   li.GloballyUniqueName(),
-		"Context":              li.GetContext(),
-		"Type":                 li.GetType(),
-		"UniqueAttributeValue": li.GetUniqueAttributeValue(),
-	})
-
-	if err == nil {
-		// Insert a placeholder for the linked item if it doesn't already exist.
-		// This placeholder will be replaced with the actual item once it
-		// arrives
-		return &api.Mutation{
-			Cond:    fmt.Sprintf("@if(eq(len(linkedItem.%v.item), 0))", li.Hash()),
-			SetJson: liJSON,
-		}
-	}
-
-	return nil
 }
 
 // QueryItem Queries a single item from the database

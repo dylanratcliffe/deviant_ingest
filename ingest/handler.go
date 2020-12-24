@@ -3,13 +3,11 @@ package ingest
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -38,53 +36,29 @@ type UpsertResult struct {
 }
 
 // UpsertBatch Upserts a set of items into the database
-func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
+func (i *Ingestor) UpsertBatch(batch ItemNodes) (*api.Response, error) {
 	var req *api.Request
 	var err error
 	var ctx context.Context
 	var cancel context.CancelFunc
 	var timeout time.Duration
-	var queries []string
+	var queries Queries
 	var mutations []*api.Mutation
 	var upsertTimeout string
-	var batchMap map[string]ItemNode
-	var linkedItemMap map[string]*sdp.Reference
+	var allItems ItemNodes
 
-	// Deduplicate the batch of items and the linked items
-	batchMap = make(map[string]ItemNode)
-	linkedItemMap = make(map[string]*sdp.Reference)
+	allItems = append(allItems, batch...)
+	allItems = append(allItems, batch.LinkedItems()...)
+	allItems = allItems.Deduplicate()
 
-	for _, in := range batch {
-		existingItem, exists := batchMap[in.GloballyUniqueName]
-
-		if exists {
-			// Compare timestamps
-			existingTime := existingItem.Metadata.GetTimestamp().AsTime()
-			newTime := in.Metadata.GetTimestamp().AsTime()
-
-			// If the item is newer then add it to the batch. If it's older then
-			// just ignore it
-			if newTime.After(existingTime) {
-				batchMap[in.GloballyUniqueName] = in
-			}
-		} else {
-			batchMap[in.GloballyUniqueName] = in
-		}
-
-		// Add the linked items
-		for _, li := range in.LinkedItems {
-			// No need to do any actual checking here since all references are
-			// equal
-			linkedItemMap[li.Hash()] = li
-		}
+	// Extract queries and mutations
+	for _, i := range allItems {
+		queries = append(queries, i.Queries()...)
+		mutations = append(mutations, i.Mutation())
 	}
 
-	// Replace the batch with the deduplicated batch
-	batch = make([]ItemNode, 0)
-
-	for _, v := range batchMap {
-		batch = append(batch, v)
-	}
+	// Deduplicate
+	queries = queries.Deduplicate()
 
 	// TODO: Ensure that this is reading from memory so it's fast
 	upsertTimeout = viper.GetString("dgraph.upsertTimeout")
@@ -105,20 +79,8 @@ func (i *Ingestor) UpsertBatch(batch []ItemNode) (*api.Response, error) {
 		CommitNow: true,
 	}
 
-	// Extract the queries and mutations from the items
-	for _, itemNode := range batch {
-		queries = append(queries, itemNode.Query())
-		mutations = append(mutations, itemNode.Mutation())
-	}
-
-	// Extract mutations for linked items
-	for _, li := range linkedItemMap {
-		queries = append(queries, ReferenceToQuery(li))
-		mutations = append(mutations, ReferenceToMutation(li))
-	}
-
 	// Combine Queries into a single valid string
-	req.Query = "{" + strings.Join(queries, "\n") + "}"
+	req.Query = queries.String()
 	req.Mutations = mutations
 
 	// Execute the upsert request

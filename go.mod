@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/dgraph-io/dgo/v200 v200.0.0-20201023081658-a9ad93fe6ebd
-	github.com/dylanratcliffe/sdp v0.0.0-20201222195921-45a24f8f81c2
+	github.com/dylanratcliffe/sdp v0.0.0-20201224094009-cca495c6fb33
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/google/go-cmp v0.5.4 // indirect
@@ -27,8 +27,8 @@ require (
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.6.1 // indirect
 	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad // indirect
-	golang.org/x/net v0.0.0-20201216054612-986b41b23924 // indirect
-	golang.org/x/sys v0.0.0-20201221093633-bc327ba9c2f0 // indirect
+	golang.org/x/net v0.0.0-20201224014010-6772e930b67b // indirect
+	golang.org/x/sys v0.0.0-20201223074533-0d417f636930 // indirect
 	golang.org/x/text v0.3.4 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/genproto v0.0.0-20201214200347-8c77b98c765d // indirect
