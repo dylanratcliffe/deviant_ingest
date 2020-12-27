@@ -106,14 +106,14 @@ func (i *Ingestor) AsyncHandle(msg *nats.Msg) {
 
 	upsertRetries := viper.GetInt("dgraph.upsertRetries")
 
+	log.WithFields(log.Fields{
+		"GloballyUniqueName": itemNode.GloballyUniqueName,
+	}).Trace("Queueing item")
+
 	i.itemChannel <- ItemInsertion{
 		Item: itemNode,
 		TTL:  upsertRetries,
 	}
-
-	log.WithFields(log.Fields{
-		"GloballyUniqueName": itemNode.GloballyUniqueName,
-	}).Debug("Queued item")
 }
 
 // ProcessBatches will start inserting items into the database in batches.
@@ -126,6 +126,10 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 
 	for {
 		if full {
+			log.WithFields(log.Fields{
+				"numItems": len(insertions),
+			}).Debug("Batch size reached, running upsert")
+
 			// Reset the flag
 			full = false
 
@@ -144,7 +148,15 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 		select {
 		case <-time.After(i.MaxWait):
 			if len(insertions) > 0 {
+				log.WithFields(log.Fields{
+					"numItems": len(insertions),
+					"maxWait":  i.MaxWait.String(),
+				}).Debug("Max wait reached, running upsert")
+
 				i.RetryUpsert(insertions)
+
+				// Empty the items variable
+				insertions = make([]ItemInsertion, 0)
 			}
 		case itemInsertion := <-i.itemChannel:
 			insertions = append(insertions, itemInsertion)
@@ -156,7 +168,15 @@ func (i *Ingestor) ProcessBatches(ctx context.Context) {
 				full = true
 			}
 		case <-ctx.Done():
+			log.WithFields(log.Fields{
+				"numItems": len(insertions),
+			}).Debug("Cancelled, running final upsert")
+
 			i.RetryUpsert(insertions)
+
+			// Empty the items variable
+			insertions = make([]ItemInsertion, 0)
+
 			return
 		}
 	}
@@ -227,7 +247,6 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 		}
 	} else {
 		log.WithFields(log.Fields{
-			"response": response.String(),
 			"numItems": len(items),
 			"duration": upsertDuration.String(),
 		}).Debug("Items upserted successfully")
@@ -253,5 +272,4 @@ func (i *Ingestor) EnsureItemChannel() {
 		i.itemChannel = make(chan ItemInsertion)
 	}
 	i.mutex.Unlock()
-
 }
