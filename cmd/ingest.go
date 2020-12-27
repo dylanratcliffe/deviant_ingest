@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -87,7 +88,7 @@ TODO`,
 			"queueName": queueName,
 		}).Info("Subscribing to item queue")
 
-		// We dont' want to do anything with the debugging info so discard it
+		// We don't want to do anything with the debugging info so discard it
 		dc := make(chan ingest.UpsertResult)
 
 		go func() {
@@ -95,6 +96,11 @@ TODO`,
 				// Do nothing with the results
 			}
 		}()
+
+		// Start the batch processor
+		batchContext, batchCancel := context.WithCancel(context.Background())
+		defer batchCancel()
+		go ir.ProcessBatches(batchContext)
 
 		sub, err := nc.QueueSubscribe(subject, queueName, ir.AsyncHandle)
 		defer sub.Drain()

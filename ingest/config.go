@@ -68,5 +68,5 @@ func SetConfigDefaults() {
 	viper.SetDefault("nats.urls", []string{"localhost"})
 
 	viper.SetDefault("ingest.batchSize", 250)
-	viper.SetDefault("ingest.maxWait", "10s")
+	viper.SetDefault("ingest.maxWait", "2s")
 }
