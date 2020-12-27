@@ -16,6 +16,8 @@ jobs:
     services:
       dgraph:
         image: dgraph/standalone:latest
+        ports:
+          - 9080:9080
     steps:
 
     - name: Set up Go 1.x
