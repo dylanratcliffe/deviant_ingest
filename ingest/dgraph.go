@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -32,6 +33,12 @@ func NewDGraphClient(hostname string, port int, connectTimeout time.Duration) (*
 	log.WithFields(log.Fields{
 		"address": address,
 	}).Info("Connecting to DGraph")
+
+	_, err := net.LookupIP(hostname)
+
+	if err != nil {
+		return nil, fmt.Errorf("Host resolution failed for %v. Error: %v", hostname, err)
+	}
 
 	// Dial a gRPC connection. The address to dial to can be configured when
 	// setting up the dgraph cluster.
