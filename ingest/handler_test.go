@@ -14,6 +14,7 @@ import (
 	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
+	"github.com/spf13/viper"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -112,13 +113,13 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	var err error
 
 	// Load default values
-	SetConfigDefaults()
+	InitConfig("")
 
 	// Connect to local DGraph
 	d, err = NewDGraphClient(
-		"localhost",
-		9080,
-		(1000 * time.Millisecond),
+		viper.GetString("dgraph.host"),
+		viper.GetInt("dgraph.port"),
+		viper.GetDuration("dgraph.connectTimeout"),
 	)
 
 	if err != nil {

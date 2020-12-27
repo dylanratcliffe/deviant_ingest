@@ -3,15 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/dylanratcliffe/redacted_dgraph/ingest"
 	"github.com/spf13/cobra"
 
-	homedir "github.com/mitchellh/go-homedir"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/spf13/viper"
 )
 
 var cfgFile string
@@ -37,7 +33,7 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
+	cobra.OnInitialize(ingest.InitConfigFunc(cfgFile))
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
@@ -58,39 +54,4 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	// rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-}
-
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		// Search config in home directory with name ".redacted_cli" (without extension).
-		viper.AddConfigPath(home)
-		viper.AddConfigPath(".")        // optionally look for config in the working directory
-		viper.SetConfigName("redacted") // name of config file (without extension)
-		viper.SetConfigType("yaml")     // REQUIRED if the config file does not have the extension in the name
-	}
-
-	replacer := strings.NewReplacer(".", "_")
-
-	viper.SetEnvPrefix("redacted")
-	viper.SetEnvKeyReplacer(replacer)
-	viper.AutomaticEnv() // read in environment variables that match
-
-	// Load defaults
-	ingest.SetConfigDefaults()
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		log.Debugf("Using config file: %v", viper.ConfigFileUsed())
-	}
 }
