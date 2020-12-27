@@ -123,7 +123,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	)
 
 	if err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
 
 	// Create ingestor
@@ -137,7 +137,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	messages, err := LoadTestMessages()
 
 	if err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
 
 	// Make sure the schema is set up
