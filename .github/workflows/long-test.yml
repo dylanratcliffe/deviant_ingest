@@ -13,7 +13,6 @@ jobs:
   build:
     name: Acceptance Tests
     runs-on: ubuntu-latest
-    container: ubuntu:latest
     services:
       dgraph:
         image: dgraph/standalone:latest
@@ -34,5 +33,3 @@ jobs:
 
     - name: Test
       run: go test -v ./...
-      env:
-        REDACTED_DGRAPH_HOST: dgraph
