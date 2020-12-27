@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
+	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
@@ -176,6 +177,8 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 				t.Fatal(result.Error)
 			}
 		}
+
+		t.Logf("Successfully handled %v messages", len(messages))
 	})
 
 	t.Run("Verify database contents", func(t *testing.T) {
@@ -203,14 +206,15 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 
 			t.Fatal(err)
 		}
+		t.Logf("Successfully verified %v messages", len(messages))
 	})
 
 	// Register a cleanup function to drop all
-	// t.Cleanup(func() {
-	// 	d.Alter(context.Background(), &api.Operation{
-	// 		DropAll: true,
-	// 	})
-	// })
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
 }
 
 // ItemMatchy Returns true of the items are the same, ot of the item we're comparing is older than the database item
