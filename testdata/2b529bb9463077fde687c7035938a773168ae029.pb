@@ -1,0 +1,9 @@
+
+servicenameQ
+O
+*
+name" com.apple.MemorySlotNotification
+
+state	stopped
+
+enabled "8puppet.service"ÄÜºþÈÝàP*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

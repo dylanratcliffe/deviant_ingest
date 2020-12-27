@@ -1,0 +1,9 @@
+
+servicenameN
+L
+
+state	stopped
+
+enabled 
+'
+namecom.apple.AppleQEMUGuestAgent"8puppet.service"ÄÜºþà÷®O*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

@@ -1,11 +1,17 @@
 {
     "cSpell.words": [
+        "Matchy",
         "NATS",
+        "Nanos",
+        "Upserts",
         "cond",
+        "deduplicated",
+        "deduplication",
         "dgraph",
         "grpc",
         "microservices",
         "mitchellh",
-        "protos"
+        "protos",
+        "upserted"
     ]
 }

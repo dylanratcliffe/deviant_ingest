@@ -12,6 +12,15 @@
             "program": "${workspaceFolder}/main.go",
             "env": {},
             "args": ["ingest"]
+        },
+        {
+            "name": "Save",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "env": {},
+            "args": ["save"]
         }
     ]
 }

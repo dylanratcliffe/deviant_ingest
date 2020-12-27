@@ -1,12 +1,16 @@
 package ingest
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/dylanratcliffe/sdp/go/sdp"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 )
 
 // NewNATSConnection connects to a given NATS URL, it also support retries. Servers should be supplied as a slice of URLs e.g.
@@ -77,4 +81,95 @@ func NewNATSConnection(urls []string, retries int, sleep int, timeout int) *nats
 	}
 
 	panic("Could not connect to NATS, giving up")
+}
+
+// MessageToItem Converts a NATS message to an SDP Item
+func MessageToItem(msg *nats.Msg) (*sdp.Item, error) {
+	var item *sdp.Item
+	var err error
+
+	item = &sdp.Item{}
+
+	err = proto.Unmarshal(msg.Data, item)
+
+	// I have noticed that sometimes you will unmarshal an empty linkeditem.
+	// Here we will check for them and remove if required. It will also
+	// deduplicate the items
+	if len(item.GetLinkedItems()) > 0 {
+		var newLinkedItems []*sdp.Reference
+		var newLinkedItemsMap map[string]*sdp.Reference
+
+		newLinkedItemsMap = make(map[string]*sdp.Reference)
+
+		// Check that the reference is valid
+		for _, li := range item.GetLinkedItems() {
+			if li.GetContext() == "" {
+				continue
+			}
+			if li.GetType() == "" {
+				continue
+			}
+			if li.GetUniqueAttributeValue() == "" {
+				continue
+			}
+			newLinkedItemsMap[li.GloballyUniqueName()] = li
+		}
+
+		// Not convert back to a map
+		for _, li := range newLinkedItemsMap {
+			newLinkedItems = append(newLinkedItems, li)
+		}
+
+		item.LinkedItems = newLinkedItems
+	}
+
+	return item, err
+}
+
+// MessageToItemNode Converts a NATS message to a DGraph ItemNode
+func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
+	var item *sdp.Item
+	var itemNode ItemNode
+	var attributesJSON []byte
+	var err error
+
+	item, err = MessageToItem(msg)
+
+	if err != nil {
+		return itemNode, err
+	}
+
+	// Convert to a local representation so that we can extract the database
+	// queries from it
+	itemNode = ItemNode{
+		Type:                 item.GetType(),
+		UniqueAttribute:      item.GetUniqueAttribute(),
+		Context:              item.GetContext(),
+		UniqueAttributeValue: item.UniqueAttributeValue(),
+		GloballyUniqueName:   item.GloballyUniqueName(),
+		Hash:                 item.Hash(),
+	}
+
+	for _, li := range item.GetLinkedItems() {
+		itemNode.LinkedItems = append(itemNode.LinkedItems, ItemNode{
+			Context:              li.GetContext(),
+			Type:                 li.GetType(),
+			UniqueAttributeValue: li.GetUniqueAttributeValue(),
+			Hash:                 li.Hash(),
+			GloballyUniqueName:   li.GloballyUniqueName(),
+		})
+	}
+
+	itemNode.Metadata = item.GetMetadata()
+
+	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
+
+	compactedBuffer := new(bytes.Buffer)
+	err = json.Compact(compactedBuffer, []byte(attributesJSON))
+
+	if err == nil {
+		itemNode.Attributes = string(compactedBuffer.Bytes())
+	}
+
+	return itemNode, err
 }
