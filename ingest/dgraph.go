@@ -115,6 +115,36 @@ type ItemInsertion struct {
 
 // ItemNode Represents an item, it also is able to return a full list of
 // mutations
+//
+// ## Attributes Predicate
+//
+// Currently attributes are stored as a JSON string. This has made the database
+// queries very easy but will likely cause performance issues in future. This is
+// due to the fact that dgraph does predicate based sharding i.e. data is
+// sharded by predicate and not by UID. This means that all values of
+// "attributes" (which will represent the vast majority of tha database) will be
+// stored in the same shard as it's all in the one predicate. Initially I had
+// tried storing each attribute as its won predicate with links between them.
+// This would be much better from a sharding perspective, but would make life
+// much harder in a number of ways, as detailed below.
+//
+// ### Predicate Expansion
+//
+// When querying we would need to expand the predicates which would mean that we
+// would either need to know the predicates in advance (difficult due to the
+// fact that attributes are arbitrary) or dynamically generate a named type in
+// dgraph for each and store this in the schema.
+//
+// ### Orphaned Nodes
+//
+// When updating data we could very easily orphan nodes since we are creating
+// nodes arbitrarily with arbitrary relationships. Think of a kubernetes pod
+// with many statuses, each of these will require a node and once the pod is
+// deleted they would need to be deleted too. Also if a nested hash changed it
+// would probably need to be re-created as opposed to updated since we don't
+// know what makes it unique. This would mean that  he old node would still
+// exist but would now be an orphan. There would need to be some regular cleanup
+// of these orphaned nodes probably
 type ItemNode struct {
 	Type                 string        `json:"Type,omitempty"`
 	UniqueAttribute      string        `json:"UniqueAttribute,omitempty"`
