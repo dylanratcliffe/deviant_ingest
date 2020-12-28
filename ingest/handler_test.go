@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -176,6 +177,143 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		d.Alter(context.Background(), &api.Operation{
 			DropAll: true,
 		})
+	})
+}
+
+func TestParallelIngestion(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+
+	var d *dgo.Dgraph
+	var err error
+
+	// Load default values
+	InitConfig("")
+
+	// Connect to local DGraph
+	d, err = NewDGraphClient(
+		viper.GetString("dgraph.host"),
+		viper.GetInt("dgraph.port"),
+		viper.GetDuration("dgraph.connectTimeout"),
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := LoadTestMessages()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create shared debug channel
+	debugChannel := make(chan UpsertResult, 10000)
+
+	// Create ingestors
+	numIngestors := 4
+	irs := make([]*Ingestor, numIngestors)
+	ctx, cancel := context.WithTimeout(context.Background(), (5 * time.Minute))
+	defer cancel()
+
+	for i := 0; i < numIngestors; i++ {
+		// Create ingestor
+		irs[i] = &Ingestor{
+			BatchSize:    10,
+			MaxWait:      (100 * time.Millisecond),
+			Dgraph:       d,
+			DebugChannel: debugChannel,
+		}
+
+		// Start batch processing
+		go irs[i].ProcessBatches(ctx)
+	}
+
+	// Ensure database is clean
+	d.Alter(context.Background(), &api.Operation{
+		DropOp: api.Operation_DATA,
+	})
+
+	// Generate random data
+	randData := make([]int, len(messages))
+	for i := range randData {
+		randData[i] = rand.Intn(numIngestors - 1)
+	}
+
+	// Make sure the schema is set up
+	SetupSchemas(d)
+
+	// Register a cleanup function to drop all
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
+
+	t.Run("Loading messages into ingestors at random", func(t *testing.T) {
+		go func() {
+			for i, msg := range messages {
+				var randInt int
+				var targetIngestor *Ingestor
+
+				// Read in a randomly generated int
+				randInt = randData[i]
+
+				// Decide which ingestor will be targeted
+				targetIngestor = irs[randInt]
+
+				targetIngestor.AsyncHandle(msg)
+			}
+		}()
+	})
+
+	t.Run("Verify upsert results", func(t *testing.T) {
+		// Read the expected number of items from the debug channel and fail if
+		// there are any error reported
+		for i := 0; i < len(messages); i++ {
+			result := <-debugChannel
+
+			if result.Error != nil {
+				t.Log("UPSERT FAILURE")
+				t.Logf("Context: %v", result.Context)
+				t.Logf("Type: %v", result.Type)
+				t.Logf("UniqueAttributeValue: %v", result.UniqueAttributeValue)
+				t.Logf("Attributes: %v", result.Attributes)
+				t.Logf("Error: %v", result.Error)
+				t.Fatal(result.Error)
+			}
+		}
+
+		t.Logf("Successfully handled %v messages", len(messages))
+	})
+
+	t.Run("Verify database contents", func(t *testing.T) {
+		// Loop over all the messages and make sure that they are in the database
+		for _, message := range messages {
+			// Extract the itemNode
+			in, err := MessageToItemNode(message)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			databaseNode, err := QueryItem(d, in.GloballyUniqueName)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Check that this item was found in the database
+			err = ItemMatchy(databaseNode, in)
+
+			if err == nil {
+				continue
+			}
+
+			t.Fatal(err)
+		}
+		t.Logf("Successfully verified %v messages", len(messages))
 	})
 }
 
