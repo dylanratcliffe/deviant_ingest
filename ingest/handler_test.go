@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -135,6 +136,11 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		DebugChannel: make(chan UpsertResult, 10000),
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), (5 * time.Minute))
+
+	go ir.ProcessBatches(ctx)
+	defer cancel()
+
 	messages, err := LoadTestMessages()
 
 	if err != nil {
@@ -144,28 +150,129 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	// Make sure the schema is set up
 	SetupSchemas(d)
 
-	t.Run("Handling items asynchronously", func(t *testing.T) {
+	t.Run("With an empty database", func(t *testing.T) {
+		t.Run("Cleaning database", func(t *testing.T) {
+			d.Alter(context.Background(), &api.Operation{
+				DropOp: api.Operation_DATA,
+			})
+		})
+
+		RunInsertionTests(
+			t,
+			messages,
+			&ir,
+		)
+	})
+
+	t.Run("With a populated database", func(t *testing.T) {
+		RunInsertionTests(
+			t,
+			messages,
+			&ir,
+		)
+	})
+
+	// Register a cleanup function to drop all
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
+}
+
+func TestParallelIngestion(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+
+	var d *dgo.Dgraph
+	var err error
+
+	// Load default values
+	InitConfig("")
+
+	// Connect to local DGraph
+	d, err = NewDGraphClient(
+		viper.GetString("dgraph.host"),
+		viper.GetInt("dgraph.port"),
+		viper.GetDuration("dgraph.connectTimeout"),
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := LoadTestMessages()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create shared debug channel
+	debugChannel := make(chan UpsertResult, 10000)
+
+	// Create ingestors
+	numIngestors := 4
+	irs := make([]*Ingestor, numIngestors)
+	ctx, cancel := context.WithTimeout(context.Background(), (5 * time.Minute))
+	defer cancel()
+
+	for i := 0; i < numIngestors; i++ {
+		// Create ingestor
+		irs[i] = &Ingestor{
+			BatchSize:    10,
+			MaxWait:      (100 * time.Millisecond),
+			Dgraph:       d,
+			DebugChannel: debugChannel,
+		}
+
+		// Start batch processing
+		go irs[i].ProcessBatches(ctx)
+	}
+
+	// Ensure database is clean
+	d.Alter(context.Background(), &api.Operation{
+		DropOp: api.Operation_DATA,
+	})
+
+	// Generate random data
+	randData := make([]int, len(messages))
+	for i := range randData {
+		randData[i] = rand.Intn(numIngestors - 1)
+	}
+
+	// Make sure the schema is set up
+	SetupSchemas(d)
+
+	// Register a cleanup function to drop all
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
+
+	t.Run("Loading messages into ingestors at random", func(t *testing.T) {
 		go func() {
-			for _, message := range messages {
-				// At the moment handlers are async. This means that all handles
-				// should return vary quickly even if there is actually a
-				// significant queue of stuff to insert into the database. I'm
-				// wondering for the sake of testing how I would tell that
-				// operations were complete... Maybe I should work out some way of
-				// making the handler blocking...
-				ir.AsyncHandle(message)
+			for i, msg := range messages {
+				var randInt int
+				var targetIngestor *Ingestor
+
+				// Read in a randomly generated int
+				randInt = randData[i]
+
+				// Decide which ingestor will be targeted
+				targetIngestor = irs[randInt]
+
+				targetIngestor.AsyncHandle(msg)
 			}
 		}()
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), (120 * time.Second))
-
-	go ir.ProcessBatches(ctx)
-	defer cancel()
-
-	t.Run("Upsert results", func(t *testing.T) {
+	t.Run("Verify upsert results", func(t *testing.T) {
+		// Read the expected number of items from the debug channel and fail if
+		// there are any error reported
 		for i := 0; i < len(messages); i++ {
-			result := <-ir.DebugChannel
+			result := <-debugChannel
 
 			if result.Error != nil {
 				t.Log("UPSERT FAILURE")
@@ -208,12 +315,73 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 		}
 		t.Logf("Successfully verified %v messages", len(messages))
 	})
+}
 
-	// Register a cleanup function to drop all
-	t.Cleanup(func() {
-		d.Alter(context.Background(), &api.Operation{
-			DropAll: true,
-		})
+// RunInsertionTests Runs insertion tests on a set of messages. This involves
+// passing the messages to the handler, waiting for handling to complete and
+// ensuring that there were no errors, then querying the database to ensure that
+// all messages were stored correctly
+func RunInsertionTests(t *testing.T, messages []*nats.Msg, ir *Ingestor) {
+	t.Run("Handling items asynchronously", func(t *testing.T) {
+		go func() {
+			for _, message := range messages {
+				// At the moment handlers are async. This means that all handles
+				// should return vary quickly even if there is actually a
+				// significant queue of stuff to insert into the database. I'm
+				// wondering for the sake of testing how I would tell that
+				// operations were complete... Maybe I should work out some way of
+				// making the handler blocking...
+				ir.AsyncHandle(message)
+			}
+		}()
+	})
+
+	t.Run("Verify upsert results", func(t *testing.T) {
+		// Read the expected number of items from the debug channel and fail if
+		// there are any error reported
+		for i := 0; i < len(messages); i++ {
+			result := <-ir.DebugChannel
+
+			if result.Error != nil {
+				t.Log("UPSERT FAILURE")
+				t.Logf("Context: %v", result.Context)
+				t.Logf("Type: %v", result.Type)
+				t.Logf("UniqueAttributeValue: %v", result.UniqueAttributeValue)
+				t.Logf("Attributes: %v", result.Attributes)
+				t.Logf("Error: %v", result.Error)
+				t.Fatal(result.Error)
+			}
+		}
+
+		t.Logf("Successfully handled %v messages", len(messages))
+	})
+
+	t.Run("Verify database contents", func(t *testing.T) {
+		// Loop over all the messages and make sure that they are in the database
+		for _, message := range messages {
+			// Extract the itemNode
+			in, err := MessageToItemNode(message)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			databaseNode, err := QueryItem(ir.Dgraph, in.GloballyUniqueName)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Check that this item was found in the database
+			err = ItemMatchy(databaseNode, in)
+
+			if err == nil {
+				continue
+			}
+
+			t.Fatal(err)
+		}
+		t.Logf("Successfully verified %v messages", len(messages))
 	})
 }
 
