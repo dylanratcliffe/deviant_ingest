@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -34,6 +35,13 @@ type UpsertResult struct {
 	Request              *api.Request
 	Error                error
 }
+
+// RetryError A Regex that matches a healthy transaction aborted error in
+// dgraph. It is part of normal operation for a transaction to be aborted and
+// need to be retried due to the fact that transactions don't hold locks in
+// dgraph. If we get an error matching this regex them it means there wasn't
+// anything wrong with the request, it just wants us t try again later
+var RetryError = regexp.MustCompile(`(?i)Please retry`)
 
 // UpsertBatch Upserts a set of items into the database
 func (i *Ingestor) UpsertBatch(batch ItemNodes) (*api.Response, error) {
@@ -203,11 +211,19 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 
 	if err != nil {
 		var retry []ItemInsertion
+		var reduceTTL bool
 
 		retry = make([]ItemInsertion, 0)
 
-		// Check which should be retried
+		// Reduce TTL if the error is NOT a simple retry error since these are
+		// expected in normal operation
+		reduceTTL = !RetryError.MatchString(err.Error())
+
 		for _, in := range insertions {
+			if reduceTTL {
+				in.TTL--
+			}
+
 			if in.TTL == 0 {
 				log.WithFields(log.Fields{
 					"error":                  err,
@@ -226,17 +242,24 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 					}
 				}
 			} else {
-				in.TTL--
 				retry = append(retry, in)
 			}
 		}
 
 		if len(retry) > 0 {
-			log.WithFields(log.Fields{
-				"error":      err,
-				"response":   response,
-				"numRetried": len(retry),
-			}).Error("Database upsert failed, retrying items")
+			if reduceTTL {
+				log.WithFields(log.Fields{
+					"error":      err,
+					"response":   response,
+					"numRetried": len(retry),
+				}).Error("Database upsert failed, retrying items with reduced TTL")
+			} else {
+				log.WithFields(log.Fields{
+					"error":      err,
+					"response":   response,
+					"numRetried": len(retry),
+				}).Debug("Database upsert failed with expected error, retrying items with no TTL penalty")
+			}
 
 			// Spawn a routine to add these back into the channel so we don't block
 			go func(r []ItemInsertion) {
