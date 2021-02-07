@@ -43,30 +43,13 @@ type UpsertResult struct {
 // anything wrong with the request, it just wants us t try again later
 var RetryError = regexp.MustCompile(`(?i)Please retry`)
 
-// UpsertBatch Upserts a set of items into the database
-func (i *Ingestor) UpsertBatch(batch ItemNodes) (*api.Response, error) {
-	var req *api.Request
+// Upsert Runs sn upsert request using the specified timeouts from the config
+func (i *Ingestor) Upsert(req *api.Request) (*api.Response, error) {
 	var err error
 	var ctx context.Context
 	var cancel context.CancelFunc
 	var timeout time.Duration
-	var queries Queries
-	var mutations []*api.Mutation
 	var upsertTimeout string
-	var allItems ItemNodes
-
-	allItems = append(allItems, batch...)
-	allItems = append(allItems, batch.LinkedItems()...)
-	allItems = allItems.Deduplicate()
-
-	// Extract queries and mutations
-	for _, i := range allItems {
-		queries = append(queries, i.Queries()...)
-		mutations = append(mutations, i.Mutation())
-	}
-
-	// Deduplicate
-	queries = queries.Deduplicate()
 
 	// TODO: Ensure that this is reading from memory so it's fast
 	upsertTimeout = viper.GetString("dgraph.upsertTimeout")
@@ -82,14 +65,6 @@ func (i *Ingestor) UpsertBatch(batch ItemNodes) (*api.Response, error) {
 		timeout,
 	)
 	defer cancel()
-
-	req = &api.Request{
-		CommitNow: true,
-	}
-
-	// Combine Queries into a single valid string
-	req.Query = queries.String()
-	req.Mutations = mutations
 
 	// Execute the upsert request
 	res, err := i.Dgraph.NewTxn().Do(ctx, req)
@@ -205,7 +180,9 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 
 	startTime = time.Now()
 
-	response, err := i.UpsertBatch(items)
+	request := BatchToUpsert(items)
+
+	response, err := i.Upsert(request)
 
 	upsertDuration = time.Since(startTime)
 
@@ -238,6 +215,7 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 						Type:                 in.Item.Type,
 						Attributes:           in.Item.Attributes,
 						UniqueAttributeValue: in.Item.UniqueAttributeValue,
+						Request:              request,
 						Error:                err,
 					}
 				}
@@ -281,6 +259,7 @@ func (i *Ingestor) RetryUpsert(insertions []ItemInsertion) {
 					Type:                 it.Type,
 					UniqueAttributeValue: it.UniqueAttributeValue,
 					Attributes:           it.Attributes,
+					Request:              request,
 					Error:                nil,
 				}
 			}
@@ -295,4 +274,33 @@ func (i *Ingestor) EnsureItemChannel() {
 		i.itemChannel = make(chan ItemInsertion)
 	}
 	i.mutex.Unlock()
+}
+
+// BatchToUpsert converts a set of ItemNodes to an Upsert request
+func BatchToUpsert(batch ItemNodes) *api.Request {
+	var req *api.Request
+	var queries Queries
+	var mutations []*api.Mutation
+	var allItems ItemNodes
+
+	allItems = append(allItems, batch...)
+	allItems = append(allItems, batch.LinkedItems()...)
+	allItems = allItems.Deduplicate()
+
+	// Extract queries and mutations
+	for _, i := range allItems {
+		queries = append(queries, i.Queries()...)
+		mutations = append(mutations, i.Mutation())
+	}
+
+	// Deduplicate
+	queries = queries.Deduplicate()
+
+	req = &api.Request{
+		CommitNow: true,
+		Query:     queries.String(),
+		Mutations: mutations,
+	}
+
+	return req
 }

@@ -254,7 +254,9 @@ func (q Queries) Deduplicate() Queries {
 	queriesMap := make(map[string]Query)
 
 	for _, qi := range q {
-		queriesMap[qi.VariableName] = qi
+		// TODO: This still technically allows clashing variable names, just not
+		// clashing functions
+		queriesMap[qi.QueryFunc] = qi
 	}
 
 	newQ := make(Queries, 0)
@@ -268,20 +270,36 @@ func (q Queries) Deduplicate() Queries {
 
 // Query Represents a dgraph query
 type Query struct {
-	VariableName string
-	QueryFunc    string
+	QueryFunc string
+	Variables []Variable
+}
+
+// Variable represents a query variable where Name is the actual name of the
+// variable and Source is the thing in the query that populates it, such as
+// "count(uid)"
+type Variable struct {
+	Name   string
+	Source string
 }
 
 func (q Query) String() string {
 	var s string
+	var declarations []string
 
-	if q.VariableName != "" {
-		s = fmt.Sprintf(`%v as `, q.VariableName)
+	declarations = make([]string, len(q.Variables))
+
+	// Convert each variable to text format
+	for i, v := range q.Variables {
+		declarations[i] = v.String()
 	}
 
-	s = s + q.QueryFunc
+	s = q.QueryFunc + " { " + strings.Join(declarations, ", ") + " }"
 
 	return s
+}
+
+func (v Variable) String() string {
+	return fmt.Sprintf(`%v as %v`, v.Name, v.Source)
 }
 
 // MarshalJSON Custom marshalling functionality that adds derived fields
@@ -396,30 +414,61 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 // Queries Returns the queries that should match specifically this item. It will
 // also export the following variables:
 //
-//   * `{GloballyUniqueName}.item`: UID of this item
-//   * `{GloballyUniqueName}.attributes`: UID of this item's attributes
-//   * `{GloballyUniqueName}.metadata`: UID of this item's metadata
+//   * `{Hash}.item`: UID of this item
+//   * `{Hash}.item.older`: UID of this item, if it is older than the supplied one
+//   * `{Hash}.linkedItemsCount`: count() of the linked items
 func (i *ItemNode) Queries() Queries {
-	q := make(Queries, 0)
+	var hashQuery Query
+	var metadataQuery Query
+	var qs Queries
 
-	q = append(q, Query{
-		VariableName: fmt.Sprintf(`%v.item`, i.Hash),
-		QueryFunc:    fmt.Sprintf(`%v(func: eq(Hash, "%v"))`, i.Hash, i.Hash),
-	})
+	// UID of this item if it already exists
+	hashQuery = Query{
+		QueryFunc: fmt.Sprintf(`%v(func: eq(Hash, "%v"))`, i.Hash, i.Hash),
+		Variables: []Variable{
+			{
+				Name:   fmt.Sprintf(`%v.item`, i.Hash),
+				Source: "uid",
+			},
+		},
+	}
 
 	if i.Metadata != nil {
-		q = append(q, Query{
-			VariableName: fmt.Sprintf(`%v.item.older`, i.Hash),
+		metadataQuery = Query{
 			QueryFunc: fmt.Sprintf(
 				`%v.older(func: uid(%v.item)) @filter(lt(Metadata.Timestamp, "%v") OR NOT has(Metadata.Timestamp))`,
 				i.Hash,
 				i.Hash,
 				i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
 			),
+			Variables: []Variable{
+				{
+					Name:   fmt.Sprintf(`%v.item.older`, i.Hash),
+					Source: "uid",
+				},
+			},
+		}
+
+		// We only need to create the linked items variable if the item we're
+		// deal with is a full item i.e. has metadata
+		hashQuery.Variables = append(hashQuery.Variables, Variable{
+			Name:   fmt.Sprintf(`%v.LinkedItems`, i.Hash),
+			Source: "LinkedItems",
 		})
+
+		// hashQuery.Variables = append(hashQuery.Variables, Variable{
+		// 	Name:   fmt.Sprintf(`%v.Metadata.Timestamp`, i.Hash),
+		// 	Source: "Metadata.Timestamp",
+		// })
 	}
 
-	return q
+	qs = append(qs, hashQuery)
+
+	if i.Metadata != nil {
+		qs = append(qs, metadataQuery)
+	}
+
+	return qs
 }
 
 // Mutation Returns a list of mutations that can be
@@ -435,15 +484,25 @@ func (i *ItemNode) Mutation() *api.Mutation {
 	//   have, update it
 	// * If our item is older, do nothing
 	if i.Metadata == nil {
+		// Upsert the item if it doesn't exist. Since the item that we're
+		// currently operating on doesn't have metadata we can't determine if
+		// it's older or not
 		cond = fmt.Sprintf(
 			"@if(eq(len(%v.item), 0))",
 			i.Hash,
 		)
 	} else {
+		// Upsert the item if (using OR):
+		//
+		// * The item doesn't exist
+		// * The item does exist but the metadata says it's older
+		// * The item does exist and it's the same version
 		cond = fmt.Sprintf(
-			"@if(eq(len(%v.item), 0) OR eq(len(%v.item.older), 1))",
+			`@if(eq(len(%v.item), 0) OR eq(len(%v.item.older), 1) OR lt(len(%v.LinkedItems), %v))`,
 			i.Hash,
 			i.Hash,
+			i.Hash,
+			len(i.LinkedItems),
 		)
 	}
 

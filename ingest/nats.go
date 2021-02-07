@@ -130,7 +130,6 @@ func MessageToItem(msg *nats.Msg) (*sdp.Item, error) {
 func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
 	var item *sdp.Item
 	var itemNode ItemNode
-	var attributesJSON []byte
 	var err error
 
 	item, err = MessageToItem(msg)
@@ -138,6 +137,17 @@ func MessageToItemNode(msg *nats.Msg) (ItemNode, error) {
 	if err != nil {
 		return itemNode, err
 	}
+
+	itemNode, err = ItemToItemNode(item)
+
+	return itemNode, err
+}
+
+// ItemToItemNode converts an item to an ItemNode
+func ItemToItemNode(item *sdp.Item) (ItemNode, error) {
+	var itemNode ItemNode
+	var attributesJSON []byte
+	var err error
 
 	// Convert to a local representation so that we can extract the database
 	// queries from it
