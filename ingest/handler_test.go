@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -27,7 +28,7 @@ var couchAttributes, _ = sdp.ToAttributes(map[string]interface{}{
 	"serialNumber": "98273492834-7",
 })
 
-var couch = &sdp.Item{
+var couch = sdp.Item{
 	Context:         "home",
 	Attributes:      couchAttributes,
 	Type:            "furniture",
@@ -49,7 +50,7 @@ var couch = &sdp.Item{
 	},
 }
 
-var couchData, _ = proto.Marshal(couch)
+var couchData, _ = proto.Marshal(&couch)
 
 var coffeeTableAttributes, _ = sdp.ToAttributes(map[string]interface{}{
 	"type":         "coffee_table",
@@ -57,7 +58,7 @@ var coffeeTableAttributes, _ = sdp.ToAttributes(map[string]interface{}{
 	"serialNumber": "CTB-54",
 })
 
-var coffeeTable = &sdp.Item{
+var coffeeTable = sdp.Item{
 	Context:         "home",
 	Attributes:      coffeeTableAttributes,
 	Type:            "furniture",
@@ -72,7 +73,7 @@ var coffeeTable = &sdp.Item{
 	},
 }
 
-var coffeeTableData, _ = proto.Marshal(coffeeTable)
+var coffeeTableData, _ = proto.Marshal(&coffeeTable)
 
 var testMessages = []*nats.Msg{
 	{
@@ -141,7 +142,7 @@ func TestNewUpsertHandlerDgraph(t *testing.T) {
 	go ir.ProcessBatches(ctx)
 	defer cancel()
 
-	messages, err := LoadTestMessages()
+	messages, err := LoadTestMessages(-1)
 
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +203,7 @@ func TestParallelIngestion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	messages, err := LoadTestMessages()
+	messages, err := LoadTestMessages(-1)
 
 	if err != nil {
 		t.Fatal(err)
@@ -275,11 +276,14 @@ func TestParallelIngestion(t *testing.T) {
 			result := <-debugChannel
 
 			if result.Error != nil {
+				requestJSON, _ := json.Marshal(result.Request)
+
 				t.Log("UPSERT FAILURE")
 				t.Logf("Context: %v", result.Context)
 				t.Logf("Type: %v", result.Type)
 				t.Logf("UniqueAttributeValue: %v", result.UniqueAttributeValue)
 				t.Logf("Attributes: %v", result.Attributes)
+				t.Logf("Request: %v", string(requestJSON))
 				t.Logf("Error: %v", result.Error)
 				t.Fatal(result.Error)
 			}
@@ -317,6 +321,189 @@ func TestParallelIngestion(t *testing.T) {
 	})
 }
 
+// TestUpdatedLinkedItems Makes sure that if an item get new linked items this
+// is set
+func TestUpdatedLinkedItems(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+
+	var d *dgo.Dgraph
+	var err error
+
+	// Load default values
+	InitConfig("")
+
+	// Connect to local DGraph
+	d, err = NewDGraphClient(
+		viper.GetString("dgraph.host"),
+		viper.GetInt("dgraph.port"),
+		viper.GetDuration("dgraph.connectTimeout"),
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	debugChan := make(chan UpsertResult, 10)
+
+	ir := Ingestor{
+		BatchSize:    2,
+		MaxWait:      (10 * time.Millisecond),
+		Dgraph:       d,
+		DebugChannel: debugChan,
+	}
+
+	// Make sure the schema is set up
+	SetupSchemas(d)
+
+	t.Run("With an empty database", func(t *testing.T) {
+		t.Run("Cleaning database", func(t *testing.T) {
+			d.Alter(context.Background(), &api.Operation{
+				DropOp: api.Operation_DATA,
+			})
+		})
+
+		t.Run("Testing LinkedItem Update", func(t *testing.T) {
+			var noLinkCouch *sdp.Item
+			var linkCouch *sdp.Item
+
+			noLinkCouch = &sdp.Item{}
+			linkCouch = &sdp.Item{}
+			cc := &couch
+
+			// Insert the couch with no linked items
+			cc.Copy(noLinkCouch)
+			noLinkCouch.LinkedItems = make([]*sdp.Reference, 0)
+			in, _ := ItemToItemNode(noLinkCouch)
+
+			ir.RetryUpsert([]ItemInsertion{
+				{
+					Item: in,
+					TTL:  1,
+				},
+			})
+
+			// Insert the same item but with links
+			cc.Copy(linkCouch)
+			in, _ = ItemToItemNode(linkCouch)
+
+			ir.RetryUpsert([]ItemInsertion{
+				{
+					Item: in,
+					TTL:  1,
+				},
+			})
+
+			// Wait for the items to be processed
+			<-debugChan
+			<-debugChan
+
+			// Check to see what the deal is
+			databaseNode, err := QueryItem(ir.Dgraph, in.GloballyUniqueName)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Check that this item was found in the database
+			err = ItemMatchy(databaseNode, in)
+
+			if err != nil {
+				t.Error(err)
+			}
+		})
+	})
+	// Register a cleanup function to drop all
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
+}
+
+// TestNewUpsertHandlerDgraph Runs an acceptance test against a real dgraph
+// instance locally
+func TestRandomInsertion(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+
+	var d *dgo.Dgraph
+	var err error
+
+	// Load default values
+	InitConfig("")
+
+	// Connect to local DGraph
+	d, err = NewDGraphClient(
+		viper.GetString("dgraph.host"),
+		viper.GetInt("dgraph.port"),
+		viper.GetDuration("dgraph.connectTimeout"),
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create ingestor
+	ir := Ingestor{
+		BatchSize:    250,
+		MaxWait:      (1000 * time.Millisecond),
+		Dgraph:       d,
+		DebugChannel: make(chan UpsertResult, 10000),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), (5 * time.Minute))
+
+	go ir.ProcessBatches(ctx)
+	defer cancel()
+
+	messages, err := LoadTestMessages(100)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make sure the schema is set up
+	SetupSchemas(d)
+
+	t.Run("Insert a random 100 messages", func(t *testing.T) {
+		t.Run("Cleaning database", func(t *testing.T) {
+			d.Alter(context.Background(), &api.Operation{
+				DropOp: api.Operation_DATA,
+			})
+		})
+
+		RunInsertionTests(
+			t,
+			messages,
+			&ir,
+		)
+	})
+
+	messages, err = LoadTestMessages(-1)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("With a semi populated database", func(t *testing.T) {
+		RunInsertionTests(
+			t,
+			messages,
+			&ir,
+		)
+	})
+
+	// Register a cleanup function to drop all
+	t.Cleanup(func() {
+		d.Alter(context.Background(), &api.Operation{
+			DropAll: true,
+		})
+	})
+}
+
 // RunInsertionTests Runs insertion tests on a set of messages. This involves
 // passing the messages to the handler, waiting for handling to complete and
 // ensuring that there were no errors, then querying the database to ensure that
@@ -343,11 +530,14 @@ func RunInsertionTests(t *testing.T, messages []*nats.Msg, ir *Ingestor) {
 			result := <-ir.DebugChannel
 
 			if result.Error != nil {
+				requestJSON, _ := json.Marshal(result.Request)
+
 				t.Log("UPSERT FAILURE")
 				t.Logf("Context: %v", result.Context)
 				t.Logf("Type: %v", result.Type)
 				t.Logf("UniqueAttributeValue: %v", result.UniqueAttributeValue)
 				t.Logf("Attributes: %v", result.Attributes)
+				t.Logf("Request: %v", string(requestJSON))
 				t.Logf("Error: %v", result.Error)
 				t.Fatal(result.Error)
 			}
@@ -406,11 +596,15 @@ func ItemMatchy(databaseItem ItemNode, otherItem ItemNode) error {
 
 // LoadTestMessages Loads a bunch of test messages from the `testdata` folder.
 // These were created using the `save` command on test systems
-func LoadTestMessages() ([]*nats.Msg, error) {
+//
+// If num is negative then all messages will be loaded, otherwise it will load a
+// random sample of the given number
+func LoadTestMessages(num int) ([]*nats.Msg, error) {
 	var messages []*nats.Msg
 	var content []byte
 	var files []os.FileInfo
 	var err error
+	var loadedContent [][]byte
 
 	// Get all files in the testdata directory
 	files, err = ioutil.ReadDir("../testdata")
@@ -419,24 +613,46 @@ func LoadTestMessages() ([]*nats.Msg, error) {
 		return messages, err
 	}
 
-	for _, file := range files {
-		if file.IsDir() == false {
-			content, err = ioutil.ReadFile(filepath.Join("../testdata", file.Name()))
+	if num < 0 {
+		for _, file := range files {
+			if file.IsDir() == false {
+				content, err = ioutil.ReadFile(filepath.Join("../testdata", file.Name()))
 
-			if err != nil {
-				return messages, err
+				if err != nil {
+					return messages, err
+				}
+
+				loadedContent = append(loadedContent, content)
+			}
+		}
+	} else {
+		for i := 0; i < num; i++ {
+			randomIndex := rand.Intn(len(files))
+			file := files[randomIndex]
+
+			if file.IsDir() == false {
+				content, err = ioutil.ReadFile(filepath.Join("../testdata", file.Name()))
+
+				if err != nil {
+					return messages, err
+				}
+
+				loadedContent = append(loadedContent, content)
 			}
 
-			messages = append(messages, &nats.Msg{
-				Subject: "pugs",
-				Reply:   "please",
-				Data:    content,
-				Sub: &nats.Subscription{
-					Subject: "pugs",
-					Queue:   "stampede",
-				},
-			})
 		}
+	}
+
+	for _, content := range loadedContent {
+		messages = append(messages, &nats.Msg{
+			Subject: "pugs",
+			Reply:   "please",
+			Data:    content,
+			Sub: &nats.Subscription{
+				Subject: "pugs",
+				Queue:   "stampede",
+			},
+		})
 	}
 
 	return messages, nil
@@ -543,24 +759,28 @@ func ItemsEqual(x, y ItemNode) error {
 		},
 	}
 
-	for i := range x.LinkedItems {
-		comparisons = append(comparisons, []Comparison{
-			{
-				Name: fmt.Sprintf("LinkedItems.%v.Type", i),
-				X:    x.LinkedItems[i].Type,
-				Y:    y.LinkedItems[i].Type,
-			},
-			{
-				Name: fmt.Sprintf("LinkedItems.%v.UniqueAttributeValue", i),
-				X:    x.LinkedItems[i].UniqueAttributeValue,
-				Y:    y.LinkedItems[i].UniqueAttributeValue,
-			},
-			{
-				Name: fmt.Sprintf("LinkedItems.%v.Context", i),
-				X:    x.LinkedItems[i].Context,
-				Y:    y.LinkedItems[i].Context,
-			},
-		}...)
+	if len(x.LinkedItems) == len(y.LinkedItems) {
+		for i := range x.LinkedItems {
+			comparisons = append(comparisons, []Comparison{
+				{
+					Name: fmt.Sprintf("LinkedItems.%v.Type", i),
+					X:    x.LinkedItems[i].Type,
+					Y:    y.LinkedItems[i].Type,
+				},
+				{
+					Name: fmt.Sprintf("LinkedItems.%v.UniqueAttributeValue", i),
+					X:    x.LinkedItems[i].UniqueAttributeValue,
+					Y:    y.LinkedItems[i].UniqueAttributeValue,
+				},
+				{
+					Name: fmt.Sprintf("LinkedItems.%v.Context", i),
+					X:    x.LinkedItems[i].Context,
+					Y:    y.LinkedItems[i].Context,
+				},
+			}...)
+		}
+	} else {
+		return fmt.Errorf("%v did not have a matching number of linked items: %v != %v", x.GloballyUniqueName, len(x.LinkedItems), len(y.LinkedItems))
 	}
 
 	for _, c := range comparisons {
