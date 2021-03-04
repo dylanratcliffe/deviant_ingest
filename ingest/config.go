@@ -64,7 +64,7 @@ func SetConfigDefaults() {
 	viper.SetDefault("dgraph.upsertRetries", 3)
 
 	viper.SetDefault("nats.retries", 5)
-	viper.SetDefault("nats.timeout", 10)
+	viper.SetDefault("nats.timeout", "10s")
 	viper.SetDefault("nats.urls", []string{"localhost"})
 
 	viper.SetDefault("ingest.batchSize", 250)

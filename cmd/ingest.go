@@ -2,15 +2,46 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/dgraph-io/dgo/v200"
 	"github.com/dylanratcliffe/redacted_dgraph/ingest"
+	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+// Settings for the ingestion process
+type Settings struct {
+	NATS   NATSSettings
+	Dgraph DgraphSettings
+	Ingest IngestSettings
+}
+
+// NATSSettings Settings for the NATS connection
+type NATSSettings struct {
+	ConnectionRetries int // Times to retry connection, 0 == infinite
+	ConnectionTimeout time.Duration
+	URLs              []string
+}
+
+// DgraphSettings Settings for connecting to dgraph
+type DgraphSettings struct {
+	Host           string
+	Port           int
+	ConnectTimeout time.Duration
+}
+
+// IngestSettings Settings for actually ingesting
+type IngestSettings struct {
+	MaxWait   time.Duration
+	BatchSize int
+}
 
 // ingestCmd represents the ingest command
 var ingestCmd = &cobra.Command{
@@ -20,64 +51,49 @@ var ingestCmd = &cobra.Command{
 TODO`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var err error
+		var nc *nats.Conn
+		var dg *dgo.Dgraph
 
-		// Connect to the NATS infrastructure
-		urls := viper.GetStringSlice("nats.urls")
-
-		// Ensure that a NATS url was passed
-		if len(urls) == 0 {
-			panic("No nats.urls found, this is a required setting")
+		settings := Settings{
+			NATS: NATSSettings{
+				ConnectionRetries: viper.GetInt("nats.retries"),
+				ConnectionTimeout: viper.GetDuration("nats.timeout"),
+				URLs:              viper.GetStringSlice("nats.urls"),
+			},
+			Dgraph: DgraphSettings{
+				Host:           viper.GetString("dgraph.host"),
+				Port:           viper.GetInt("dgraph.port"),
+				ConnectTimeout: viper.GetDuration("dgraph.connectTimeout"),
+			},
+			Ingest: IngestSettings{
+				MaxWait:   viper.GetDuration("ingest.maxWait"),
+				BatchSize: viper.GetInt("ingest.batchSize"),
+			},
 		}
 
-		retries := viper.GetInt("nats.retries")
-		timeout := viper.GetInt("nats.timeout")
+		err = errors.New("")
 
-		// Make the NATS connection
-		nc := ingest.NewNATSConnection(
-			urls,
-			retries,
-			5,
-			timeout,
-		)
+		// Loop forever until it's connected as is the way for containers
+		for err != nil {
+			nc, dg, err = ConnectAll(settings)
 
-		dgHost := viper.GetString("dgraph.host")
-		dgTimeout := viper.GetString("dgraph.connectTimeout")
-		dgPort := viper.GetInt("dgraph.port")
-
-		t, _ := time.ParseDuration(dgTimeout)
-
-		// Make the dgraph connection
-		dg, err := ingest.NewDGraphClient(dgHost, dgPort, t)
-
-		maxWait, _ := time.ParseDuration(viper.GetString("ingest.maxWait"))
+			if err != nil {
+				log.Error(err)
+				time.Sleep(2 * time.Second)
+			}
+		}
 
 		ir := ingest.Ingestor{
-			BatchSize: viper.GetInt("ingest.batchSize"),
-			MaxWait:   maxWait,
+			BatchSize: settings.Ingest.BatchSize,
+			MaxWait:   settings.Ingest.MaxWait,
 			Dgraph:    dg,
-		}
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		log.Info("Setting up initial schemas")
-
-		// Ensure that the schema exists
-		err = ingest.SetupSchemas(dg)
-
-		if err != nil {
-			log.WithFields(log.Fields{
-				"schemas": ingest.Schema,
-				"error":   err,
-			}).Fatal("Failed to set up initial schemas")
 		}
 
 		// Subscribe
 		queueName := strings.Join([]string{
 			"ingest",
-			dgHost,
-			fmt.Sprint(dgPort),
+			settings.Dgraph.Host,
+			fmt.Sprint(settings.Dgraph.Port),
 		},
 			".",
 		)
@@ -111,6 +127,55 @@ TODO`,
 
 		select {}
 	},
+}
+
+// ConnectAll Connects to all the things
+func ConnectAll(s Settings) (*nats.Conn, *dgo.Dgraph, error) {
+	// Ensure that a NATS url was passed
+	if len(s.NATS.URLs) == 0 {
+		panic("No nats.urls found, this is a required setting")
+	}
+
+	var nc *nats.Conn
+	var dg *dgo.Dgraph
+	var err error
+
+	hostname, _ := os.Hostname()
+
+	urls := strings.Join(s.NATS.URLs, ",")
+
+	// Make the NATS connection
+	nc, err = nats.Connect(
+		urls,                                   // The servers to connect to
+		nats.Name(hostname),                    // The connection name
+		nats.Timeout(s.NATS.ConnectionTimeout), // Connection timeout (per server)
+	)
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error connecting to NATS with settings: %+v. Error: %v", s.NATS, err)
+	}
+
+	// Make the dgraph connection
+	dg, err = ingest.NewDGraphClient(
+		s.Dgraph.Host,
+		s.Dgraph.Port,
+		s.Dgraph.ConnectTimeout,
+	)
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error connecting to Dgraph with settings: %+v. Error: %v", s.Dgraph, err)
+	}
+
+	log.Info("Setting up initial schemas")
+
+	// Ensure that the schema exists
+	err = ingest.SetupSchemas(dg)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return nc, dg, nil
 }
 
 func init() {

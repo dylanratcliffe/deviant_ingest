@@ -17,11 +17,10 @@ import (
 //
 // link.NewNATSConnection([]string{"nats://127.0.0.1:1222", "nats://127.0.0.1:1223"},	5, 5)
 //
-func NewNATSConnection(urls []string, retries int, sleep int, timeout int) *nats.Conn {
+func NewNATSConnection(urls []string, retries int, sleep int, timeout time.Duration) *nats.Conn {
 	var tries int
 	var servers string
 	var hostname string
-	var timeoutDuration time.Duration
 	var sleepDuration time.Duration
 
 	// Set default values
@@ -31,10 +30,8 @@ func NewNATSConnection(urls []string, retries int, sleep int, timeout int) *nats
 		sleepDuration = (time.Duration(sleep) * time.Second)
 	}
 
-	if timeout == 0 {
-		timeoutDuration = 10 * time.Second
-	} else {
-		timeoutDuration = time.Duration(timeout) * time.Second
+	if timeout == time.Duration(0) {
+		timeout = 10 * time.Second
 	}
 
 	// Get the hostname to use as the connection name
@@ -51,9 +48,9 @@ func NewNATSConnection(urls []string, retries int, sleep int, timeout int) *nats
 		// TODO: Make these options more configurable
 		// https://docs.nats.io/developing-with-nats/connecting/pingpong
 		nc, err := nats.Connect(
-			servers,                       // The servers to connect to
-			nats.Name(hostname),           // The connection name
-			nats.Timeout(timeoutDuration), // Connection timeout (per server)
+			servers,               // The servers to connect to
+			nats.Name(hostname),   // The connection name
+			nats.Timeout(timeout), // Connection timeout (per server)
 		)
 
 		if err == nil {

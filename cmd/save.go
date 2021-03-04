@@ -29,7 +29,7 @@ var saveCmd = &cobra.Command{
 		}
 
 		retries := viper.GetInt("nats.retries")
-		timeout := viper.GetInt("nats.timeout")
+		timeout := viper.GetDuration("nats.timeout")
 
 		// Make the NATS connection
 		nc := ingest.NewNATSConnection(
