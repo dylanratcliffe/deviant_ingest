@@ -1,9 +1,9 @@
 FROM golang:latest AS build
 
 # Set necessary environmet variables needed for our image
-# ENV GOOS=linux \
-#     GOARCH=amd64 \
-#     CGO_ENABLED=0
+ENV GOOS=linux \
+    GOARCH=amd64 \
+    CGO_ENABLED=0
 
 WORKDIR $GOPATH/src/github.com/dylanratcliffe/deviant_dgraph
 
