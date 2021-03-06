@@ -1,6 +1,6 @@
 # Dgraph
 
-This project stores items from a NATS network into dgraph.
+This project stores SDP items from a NATS network into dgraph.
 
 ## Running
 
