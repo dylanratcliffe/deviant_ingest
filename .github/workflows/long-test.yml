@@ -1,5 +1,5 @@
 ---  
-name: Go
+name: Acceptance Tests & Package
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
@@ -65,7 +65,7 @@ jobs:
         id: docker_meta
         uses: crazy-max/ghaction-docker-meta@v1
         with:
-          images: dylanratcliffe/deviant-ingest
+          images: ghcr.io/dylanratcliffe/deviant_ingest
           # https://github.com/marketplace/actions/docker-meta#semver
           tag-semver: |
             {{version}}
