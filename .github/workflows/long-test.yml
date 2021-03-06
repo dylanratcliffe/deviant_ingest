@@ -65,7 +65,7 @@ jobs:
         id: docker_meta
         uses: crazy-max/ghaction-docker-meta@v1
         with:
-          images: ghcr.io/dylanratcliffe/deviant_ingest
+          images: ghcr.io/dylanratcliffe/deviant-ingest
           # https://github.com/marketplace/actions/docker-meta#semver
           tag-semver: |
             {{version}}
