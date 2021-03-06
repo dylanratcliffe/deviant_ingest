@@ -7,8 +7,7 @@ jobs:
   remove-package-versions:
     runs-on: ubuntu-latest
     steps:
-      - name: Remove package versions
-        id: remove-package-versions
-        uses: epitomeglobal/remove-package-versions@master
+      - name: purge packages
+        uses: MobileheadHolding/github-action-purge-packages@v2.0.1
         env:
           GITHUB_TOKEN: ${{ secrets.CR_PAT }}
