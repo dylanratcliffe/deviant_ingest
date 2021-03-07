@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: purge packages
-        uses: dylanratcliffe/delete-untagged-containers@main
+        uses: dylanratcliffe/delete-untagged-containers@v1
         with:
           package_name: deviant-ingest
           token: ${{ secrets.CR_PAT }}
