@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: purge packages
-        uses: MobileheadHolding/github-action-purge-packages@v2.0.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.CR_PAT }}
+        uses: dylanratcliffe/delete-untagged-containers@main
+        with:
+          package_name: deviant-ingest
+          token: ${{ secrets.CR_PAT }}
