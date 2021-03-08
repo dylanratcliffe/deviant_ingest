@@ -20,7 +20,7 @@ RUN go get -v -t && go mod vendor
 RUN go build -o /go/bin/deviant_dgraph
 
 # Build a small image
-FROM scratch
+FROM alpine:latest
 
 WORKDIR /deviant
 

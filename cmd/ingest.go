@@ -107,6 +107,10 @@ TODO`,
 		}).Info("Subscribing to item queue")
 
 		if settings.HealthyFile != "" {
+			log.WithFields(log.Fields{
+				"path": settings.HealthyFile,
+			}).Trace("Creating healthy file")
+
 			// Create a file to notify something (probably Kubernetes) that the
 			// service is healthy
 			_, err := os.Create(settings.HealthyFile)
