@@ -32,16 +32,15 @@ func InitConfig(cfgFile string) {
 			os.Exit(1)
 		}
 
-		// Search config in home directory with name ".redacted_cli" (without extension).
 		viper.AddConfigPath(home)
-		viper.AddConfigPath(".")        // optionally look for config in the working directory
-		viper.SetConfigName("redacted") // name of config file (without extension)
-		viper.SetConfigType("yaml")     // REQUIRED if the config file does not have the extension in the name
+		viper.AddConfigPath(".")       // optionally look for config in the working directory
+		viper.SetConfigName("deviant") // name of config file (without extension)
+		viper.SetConfigType("yaml")    // REQUIRED if the config file does not have the extension in the name
 	}
 
 	replacer := strings.NewReplacer(".", "_")
 
-	viper.SetEnvPrefix("redacted")
+	viper.SetEnvPrefix("deviant")
 	viper.SetEnvKeyReplacer(replacer)
 	viper.AutomaticEnv() // read in environment variables that match
 
