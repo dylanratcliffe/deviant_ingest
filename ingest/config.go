@@ -68,4 +68,5 @@ func SetConfigDefaults() {
 
 	viper.SetDefault("ingest.batchSize", 250)
 	viper.SetDefault("ingest.maxWait", "2s")
+	viper.SetDefault("healthyFile", "")
 }

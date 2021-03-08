@@ -18,9 +18,10 @@ import (
 
 // Settings for the ingestion process
 type Settings struct {
-	NATS   NATSSettings
-	Dgraph DgraphSettings
-	Ingest IngestSettings
+	NATS        NATSSettings
+	Dgraph      DgraphSettings
+	Ingest      IngestSettings
+	HealthyFile string
 }
 
 // NATSSettings Settings for the NATS connection
@@ -69,6 +70,7 @@ TODO`,
 				MaxWait:   viper.GetDuration("ingest.maxWait"),
 				BatchSize: viper.GetInt("ingest.batchSize"),
 			},
+			HealthyFile: viper.GetString("healthyFile"),
 		}
 
 		err = errors.New("")
@@ -103,6 +105,18 @@ TODO`,
 			"subject":   subject,
 			"queueName": queueName,
 		}).Info("Subscribing to item queue")
+
+		if settings.HealthyFile != "" {
+			// Create a file to notify something (probably Kubernetes) that the
+			// service is healthy
+			_, err := os.Create(settings.HealthyFile)
+
+			if err != nil {
+				log.Error(err)
+			} else {
+				defer os.Remove(settings.HealthyFile)
+			}
+		}
 
 		// We don't want to do anything with the debugging info so discard it
 		dc := make(chan ingest.UpsertResult)

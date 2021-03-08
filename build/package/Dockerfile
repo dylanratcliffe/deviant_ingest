@@ -7,6 +7,9 @@ ENV GOOS=linux \
 
 WORKDIR $GOPATH/src/github.com/dylanratcliffe/deviant_dgraph
 
+# This file will be created when the service is up and running
+ENV DEVIANT_HEALTHFILE=/deviant/healthy
+
 # Copy the code into the container
 COPY . .
 
