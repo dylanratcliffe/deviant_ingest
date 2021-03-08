@@ -10,7 +10,10 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/main.go",
-            "env": {},
+            "env": {
+                "DEVIANT_HEALTHYFILE": "/tmp/foo",
+                "DEVIANT_NATS_RETRIES": 100,
+            },
             "args": ["ingest"]
         },
         {

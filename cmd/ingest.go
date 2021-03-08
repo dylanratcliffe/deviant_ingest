@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
@@ -117,8 +119,6 @@ TODO`,
 
 			if err != nil {
 				log.Error(err)
-			} else {
-				defer os.Remove(settings.HealthyFile)
 			}
 		}
 
@@ -143,7 +143,18 @@ TODO`,
 			log.Error(err)
 		}
 
-		select {}
+		interrupt := make(chan os.Signal)
+		signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+
+		select {
+		case <-interrupt:
+			if settings.HealthyFile != "" {
+				os.Remove(settings.HealthyFile)
+			}
+
+			log.Info("Exiting")
+			os.Exit(0)
+		}
 	},
 }
 
