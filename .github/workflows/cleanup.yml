@@ -1,7 +1,7 @@
 name: Remove old package versions
 on:
   schedule:
-    - cron:  '0 20 50 * *'
+    - cron:  '50 20 * * *'
   workflow_dispatch:
 jobs:
   remove-package-versions:
