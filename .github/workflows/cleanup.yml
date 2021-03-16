@@ -1,7 +1,7 @@
 name: Remove old package versions
 on:
   schedule:
-    - cron:  '0 21 * * *'
+    - cron:  '35 21 * * *'
   workflow_dispatch:
 jobs:
   remove-package-versions:
@@ -11,4 +11,5 @@ jobs:
         uses: dylanratcliffe/delete-untagged-containers@main
         with:
           package_name: deviant-ingest
+          user: dylanratcliffe
           token: ${{ secrets.CR_PAT }}
