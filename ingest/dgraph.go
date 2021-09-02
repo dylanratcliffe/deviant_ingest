@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dylanratcliffe/sdp/go/sdp"
+	"github.com/dylanratcliffe/sdp.go"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/dgraph-io/dgo/v200"

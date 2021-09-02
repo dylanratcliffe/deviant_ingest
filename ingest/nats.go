@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dylanratcliffe/sdp/go/sdp"
+	"github.com/dylanratcliffe/sdp.go"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
