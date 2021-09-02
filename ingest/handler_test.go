@@ -14,7 +14,7 @@ import (
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/dylanratcliffe/sdp/go/sdp"
+	"github.com/dylanratcliffe/sdp.go"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/viper"
