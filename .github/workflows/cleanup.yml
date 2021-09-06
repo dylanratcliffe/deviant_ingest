@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: purge packages
-        uses: dylanratcliffe/delete-untagged-containers@parallel
+        uses: dylanratcliffe/delete-untagged-containers@main
         with:
           package_name: deviant-ingest
           user: dylanratcliffe
