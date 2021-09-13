@@ -1,9 +1,0 @@
-
-servicenameG
-E
- 
-namecom.wacom.DataStoreMgr
-
-state	running
-
-enabled "8puppet.service"ÄÜºþÐ÷¬G*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

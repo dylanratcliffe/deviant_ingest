@@ -143,7 +143,7 @@ TODO`,
 			log.Error(err)
 		}
 
-		interrupt := make(chan os.Signal)
+		interrupt := make(chan os.Signal, 128)
 		signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 
 		select {
@@ -181,7 +181,7 @@ func ConnectAll(s Settings) (*nats.Conn, *dgo.Dgraph, error) {
 	)
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("Error connecting to NATS with settings: %+v. Error: %v", s.NATS, err)
+		return nil, nil, fmt.Errorf("error connecting to NATS with settings: %+v. Error: %v", s.NATS, err)
 	}
 
 	// Make the dgraph connection
@@ -192,7 +192,7 @@ func ConnectAll(s Settings) (*nats.Conn, *dgo.Dgraph, error) {
 	)
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("Error connecting to Dgraph with settings: %+v. Error: %v", s.Dgraph, err)
+		return nil, nil, fmt.Errorf("error connecting to Dgraph with settings: %+v. Error: %v", s.Dgraph, err)
 	}
 
 	log.Info("Setting up initial schemas")

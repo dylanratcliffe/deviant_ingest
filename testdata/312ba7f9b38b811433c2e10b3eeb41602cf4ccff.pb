@@ -1,9 +1,0 @@
-
-servicename^
-\
-
-enabled 
-7
-name/-com.apple.AddressBook.ContactsAccountsService
-
-state	running"8puppet.service"ÄÜºþø¹ÞE*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

@@ -1,9 +1,0 @@
-
-servicenameE
-C
-
-enabled 
-
-namecom.apple.voicememod
-
-state	running"8puppet.service"ÄÜºþÐú„T*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

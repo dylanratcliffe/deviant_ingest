@@ -1,9 +1,0 @@
-
-servicenameG
-E
- 
-namecom.apple.DwellControl
-
-state	running
-
-enabled "8puppet.service"ÄÜºþð­ÕE*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

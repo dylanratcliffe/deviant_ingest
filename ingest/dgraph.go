@@ -572,9 +572,11 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 	var results map[string][]ItemNode
 	var result ItemNode
 
+	escapedGUN, _ := json.Marshal(globallyUniqueName)
+
 	// Query to ensure that the items were all inserted okay
 	q := fmt.Sprintf(`{
-			Items(func: eq(GloballyUniqueName, "%v")) {
+			Items(func: eq(GloballyUniqueName, %v)) {
 				Context
 				Type
 				UniqueAttribute
@@ -588,6 +590,13 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 				Metadata.BackendDuration
 				Metadata.BackendDurationPerItem
 				Metadata.BackendPackage
+				Metadata.SourceRequest.Type
+				Metadata.SourceRequest.Method
+				Metadata.SourceRequest.Query
+				Metadata.SourceRequest.LinkDepth
+				Metadata.SourceRequest.Context
+				Metadata.SourceRequest.ItemSubject
+				Metadata.SourceRequest.ResponseSubject			
 				LinkedItems {
 					Context
 					Type
@@ -595,7 +604,7 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 				}
 			}
 		}`,
-		globallyUniqueName,
+		string(escapedGUN),
 	)
 
 	res, err = d.NewTxn().Query(context.Background(), q)
@@ -613,5 +622,5 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 
 	result = results["Items"][0]
 
-	return result, nil
+	return result, err
 }

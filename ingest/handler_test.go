@@ -17,7 +17,6 @@ import (
 	"github.com/dylanratcliffe/sdp-go"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/viper"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -58,8 +57,6 @@ var couch = sdp.Item{
 	},
 }
 
-var couchData, _ = proto.Marshal(&couch)
-
 var coffeeTableAttributes, _ = sdp.ToAttributes(map[string]interface{}{
 	"type":         "coffee_table",
 	"colour":       "wood",
@@ -86,38 +83,6 @@ var coffeeTable = sdp.Item{
 			ItemSubject:     "items",
 			ResponseSubject: "responses",
 		},
-	},
-}
-
-var coffeeTableData, _ = proto.Marshal(&coffeeTable)
-
-var testMessages = []*nats.Msg{
-	{
-		Subject: "items.house1",
-		Reply:   "replysubject",
-		Sub: &nats.Subscription{
-			Subject: "items.house1",
-			Queue:   "q",
-		},
-		Data: couchData,
-	},
-	{
-		Subject: "items.house1",
-		Reply:   "replysubject",
-		Sub: &nats.Subscription{
-			Subject: "items.house1",
-			Queue:   "q",
-		},
-		Data: coffeeTableData,
-	},
-	{
-		Subject: "items.house1",
-		Reply:   "replysubject",
-		Sub: &nats.Subscription{
-			Subject: "items.house1",
-			Queue:   "q",
-		},
-		Data: couchData,
 	},
 }
 

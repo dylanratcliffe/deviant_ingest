@@ -49,10 +49,9 @@ func (i *Ingestor) Upsert(req *api.Request) (*api.Response, error) {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	var timeout time.Duration
-	var upsertTimeout string
 
 	// TODO: Ensure that this is reading from memory so it's fast
-	upsertTimeout = viper.GetString("dgraph.upsertTimeout")
+	upsertTimeout := viper.GetString("dgraph.upsertTimeout")
 	timeout, err = time.ParseDuration(upsertTimeout)
 
 	if err != nil {

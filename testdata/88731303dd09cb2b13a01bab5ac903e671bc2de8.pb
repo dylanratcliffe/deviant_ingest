@@ -1,0 +1,19 @@
+
+mountpathé
+ã
+
+path/Volumes/Public
+
+fstypentfs
+B
+options725
+local
+nodev
+nosuid
+	read-only
+
+noowners
+
+device/dev/disk2s4"±etcdata.mount}
+mount Á**Ç2return.item._INBOX.r41YVsiBnCrav1Ub0mY4Co.Sdel8bG2ä6return.response._INBOX.r41YVsiBnCrav1Ub0mY4Co.9joY9WlL"≥•˝âêìÔ'*ØÅç2Ë™::etcdata*Dylans-MacBook-Pro.localä1
+file/Volumes/PublicDylans-MacBook-Pro.local
