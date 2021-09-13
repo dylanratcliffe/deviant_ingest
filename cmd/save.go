@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/dylanratcliffe/redacted_dgraph/ingest"
+	"github.com/dylanratcliffe/deviant_ingest/ingest"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

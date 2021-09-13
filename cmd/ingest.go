@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
-	"github.com/dylanratcliffe/redacted_dgraph/ingest"
+	"github.com/dylanratcliffe/deviant_ingest/ingest"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

@@ -14,10 +14,10 @@ import (
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/dylanratcliffe/sdp.go"
-	"github.com/golang/protobuf/proto"
+	"github.com/dylanratcliffe/sdp-go"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/viper"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -38,8 +38,16 @@ var couch = sdp.Item{
 		BackendDuration:        durationpb.New(time.Millisecond),
 		BackendDurationPerItem: durationpb.New(time.Millisecond),
 		BackendPackage:         "test-package",
-		RequestMethod:          sdp.RequestMethod_FIND,
 		Timestamp:              timestamppb.Now(),
+		SourceRequest: &sdp.ItemRequest{
+			Type:            "furniture",
+			Method:          sdp.RequestMethod_GET,
+			Query:           "98273492834-7",
+			LinkDepth:       12,
+			Context:         "testContext",
+			ItemSubject:     "items",
+			ResponseSubject: "responses",
+		},
 	},
 	LinkedItems: []*sdp.Reference{
 		{
@@ -68,8 +76,16 @@ var coffeeTable = sdp.Item{
 		BackendDuration:        durationpb.New(time.Millisecond),
 		BackendDurationPerItem: durationpb.New(time.Millisecond),
 		BackendPackage:         "test-package",
-		RequestMethod:          sdp.RequestMethod_FIND,
 		Timestamp:              timestamppb.Now(),
+		SourceRequest: &sdp.ItemRequest{
+			Type:            "furniture",
+			Method:          sdp.RequestMethod_GET,
+			Query:           "CTB-54",
+			LinkDepth:       11,
+			Context:         "testContext",
+			ItemSubject:     "items",
+			ResponseSubject: "responses",
+		},
 	},
 }
 
@@ -713,9 +729,39 @@ func ItemsEqual(x, y ItemNode) error {
 			Y:    y.Metadata.GetBackendName(),
 		},
 		{
-			Name: "Metadata.RequestMethod",
-			X:    x.Metadata.GetRequestMethod(),
-			Y:    y.Metadata.GetRequestMethod(),
+			Name: "Metadata.SourceRequest.Type",
+			X:    x.Metadata.GetSourceRequest().GetType(),
+			Y:    x.Metadata.GetSourceRequest().GetType(),
+		},
+		{
+			Name: "Metadata.SourceRequest.Method",
+			X:    x.Metadata.GetSourceRequest().GetMethod(),
+			Y:    x.Metadata.GetSourceRequest().GetMethod(),
+		},
+		{
+			Name: "Metadata.SourceRequest.Query",
+			X:    x.Metadata.GetSourceRequest().GetQuery(),
+			Y:    x.Metadata.GetSourceRequest().GetQuery(),
+		},
+		{
+			Name: "Metadata.SourceRequest.LinkDepth",
+			X:    x.Metadata.GetSourceRequest().GetLinkDepth(),
+			Y:    x.Metadata.GetSourceRequest().GetLinkDepth(),
+		},
+		{
+			Name: "Metadata.SourceRequest.Context",
+			X:    x.Metadata.GetSourceRequest().GetContext(),
+			Y:    x.Metadata.GetSourceRequest().GetContext(),
+		},
+		{
+			Name: "Metadata.SourceRequest.ItemSubject",
+			X:    x.Metadata.GetSourceRequest().GetItemSubject(),
+			Y:    x.Metadata.GetSourceRequest().GetItemSubject(),
+		},
+		{
+			Name: "Metadata.SourceRequest.ResponseSubject",
+			X:    x.Metadata.GetSourceRequest().GetResponseSubject(),
+			Y:    x.Metadata.GetSourceRequest().GetResponseSubject(),
 		},
 		{
 			Name: "Metadata.Timestamp.Seconds",

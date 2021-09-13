@@ -56,7 +56,7 @@ func (i *Ingestor) Upsert(req *api.Request) (*api.Response, error) {
 	timeout, err = time.ParseDuration(upsertTimeout)
 
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse dgraph.upsertTimeout value: %v", upsertTimeout)
+		return nil, fmt.Errorf("could not parse dgraph.upsertTimeout value: %v", upsertTimeout)
 	}
 
 	// Get the timeout

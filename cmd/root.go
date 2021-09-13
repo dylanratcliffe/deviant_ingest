@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dylanratcliffe/redacted_dgraph/ingest"
+	"github.com/dylanratcliffe/deviant_ingest/ingest"
 	"github.com/spf13/cobra"
 
 	log "github.com/sirupsen/logrus"

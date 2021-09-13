@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dylanratcliffe/sdp.go"
+	"github.com/dylanratcliffe/sdp-go"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/dgraph-io/dgo/v200"
@@ -37,7 +37,7 @@ func NewDGraphClient(hostname string, port int, connectTimeout time.Duration) (*
 	_, err := net.LookupIP(hostname)
 
 	if err != nil {
-		return nil, fmt.Errorf("Host resolution failed for %v. Error: %v", hostname, err)
+		return nil, fmt.Errorf("host resolution failed for %v. Error: %v", hostname, err)
 	}
 
 	// Dial a gRPC connection. The address to dial to can be configured when
@@ -80,6 +80,13 @@ type Item {
 	Metadata.BackendDuration
 	Metadata.BackendDurationPerItem
 	Metadata.BackendPackage
+	Metadata.SourceRequest.Type
+	Metadata.SourceRequest.Method
+	Metadata.SourceRequest.Query
+	Metadata.SourceRequest.LinkDepth
+	Metadata.SourceRequest.Context
+	Metadata.SourceRequest.ItemSubject
+	Metadata.SourceRequest.ResponseSubject
 	LinkedItems
 }
 
@@ -96,15 +103,20 @@ Metadata.Timestamp: dateTime @index(hour) @upsert .
 Metadata.BackendDuration: int @index(int) @upsert .
 Metadata.BackendDurationPerItem: int @index(int) @upsert .
 Metadata.BackendPackage: string @index(exact) @upsert .
+Metadata.SourceRequest.Type: string .
+Metadata.SourceRequest.Method: string .
+Metadata.SourceRequest.Query: string .
+Metadata.SourceRequest.LinkDepth: int .
+Metadata.SourceRequest.Context: string .
+Metadata.SourceRequest.ItemSubject: string .
+Metadata.SourceRequest.ResponseSubject: string .
 LinkedItems: [uid] @reverse .
 `
 
 // SetupSchemas Will create the schemas required for ingest to work. This will
 // need to be run before anything can actually be inserted into the database
 func SetupSchemas(dg *dgo.Dgraph) error {
-	var operation *api.Operation
-
-	operation = &api.Operation{
+	operation := &api.Operation{
 		Schema: Schema,
 	}
 
@@ -179,9 +191,7 @@ func (i ItemNodes) LinkedItems() ItemNodes {
 	in := make(ItemNodes, 0)
 
 	for _, item := range i {
-		for _, li := range item.LinkedItems {
-			in = append(in, li)
-		}
+		in = append(in, item.LinkedItems...)
 	}
 
 	return in
@@ -201,7 +211,7 @@ func (i ItemNodes) Deduplicate() ItemNodes {
 		// Check to see if the item already exists in the map
 		existingItem, exists := m[in.Hash]
 
-		if exists == false {
+		if !exists {
 			// If the item does not yet exist then just add it
 			m[in.Hash] = in
 		} else {
@@ -284,9 +294,8 @@ type Variable struct {
 
 func (q Query) String() string {
 	var s string
-	var declarations []string
 
-	declarations = make([]string, len(q.Variables))
+	declarations := make([]string, len(q.Variables))
 
 	// Convert each variable to text format
 	for i, v := range q.Variables {
@@ -317,7 +326,7 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 	uid = fmt.Sprintf("uid(%v.item)", i.Hash)
 
 	type Alias ItemNode
-	return json.Marshal(&struct {
+	s := &struct {
 		UID                            string        `json:"uid"`
 		DType                          string        `json:"dgraph.type,omitempty"`
 		LinkedItems                    []string      `json:"LinkedItems"`
@@ -327,19 +336,48 @@ func (i ItemNode) MarshalJSON() ([]byte, error) {
 		MetadataBackendDuration        time.Duration `json:"Metadata.BackendDuration,omitempty"`
 		MetadataBackendDurationPerItem time.Duration `json:"Metadata.BackendDurationPerItem,omitempty"`
 		MetadataBackendPackage         string        `json:"Metadata.BackendPackage,omitempty"`
+		SourceRequestType              string        `json:"Metadata.SourceRequest.Type,omitempty"`
+		SourceRequestMethod            string        `json:"Metadata.SourceRequest.Method,omitempty"`
+		SourceRequestQuery             string        `json:"Metadata.SourceRequest.Query,omitempty"`
+		SourceRequestLinkDepth         int           `json:"Metadata.SourceRequest.LinkDepth,omitempty"`
+		SourceRequestContext           string        `json:"Metadata.SourceRequest.Context,omitempty"`
+		SourceRequestItemSubject       string        `json:"Metadata.SourceRequest.ItemSubject,omitempty"`
+		SourceRequestResponseSubject   string        `json:"Metadata.SourceRequest.ResponseSubject,omitempty"`
 		Alias
 	}{
-		UID:                            uid,
-		DType:                          "Item",
-		LinkedItems:                    li,
-		MetadataBackendName:            i.Metadata.GetBackendName(),
-		MetadataRequestMethod:          i.Metadata.GetRequestMethod().String(),
-		MetadataTimestamp:              i.Metadata.GetTimestamp().AsTime().Format(time.RFC3339Nano),
-		MetadataBackendDuration:        i.Metadata.GetBackendDuration().AsDuration(),
-		MetadataBackendDurationPerItem: i.Metadata.GetBackendDurationPerItem().AsDuration(),
-		MetadataBackendPackage:         i.Metadata.GetBackendPackage(),
-		Alias:                          (Alias)(i),
-	})
+		UID:                    uid,
+		DType:                  "Item",
+		LinkedItems:            li,
+		MetadataBackendName:    i.Metadata.GetBackendName(),
+		MetadataBackendPackage: i.Metadata.GetBackendPackage(),
+		Alias:                  (Alias)(i),
+	}
+
+	if m := i.Metadata; m != nil {
+		if t := m.GetTimestamp(); t != nil {
+			s.MetadataTimestamp = t.AsTime().Format(time.RFC3339Nano)
+		}
+
+		if t := m.GetBackendDuration(); t != nil {
+			s.MetadataBackendDuration = t.AsDuration()
+		}
+
+		if t := m.GetBackendDurationPerItem(); t != nil {
+			s.MetadataBackendDurationPerItem = t.AsDuration()
+		}
+
+		if sr := m.SourceRequest; sr != nil {
+			s.SourceRequestType = sr.GetType()
+			s.SourceRequestMethod = sr.GetMethod().String()
+			s.SourceRequestQuery = sr.GetQuery()
+			s.SourceRequestLinkDepth = int(sr.GetLinkDepth())
+			s.SourceRequestContext = sr.GetContext()
+			s.SourceRequestItemSubject = sr.GetItemSubject()
+			s.SourceRequestResponseSubject = sr.GetResponseSubject()
+		}
+	}
+
+	return json.Marshal(s)
 }
 
 // UnmarshalJSON Converts from JSON to ItemNode
@@ -355,11 +393,17 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 			UniqueAttributeValue string `json:"UniqueAttributeValue,omitempty"`
 		} `json:"LinkedItems,omitempty"`
 		MetadataBackendName            string        `json:"Metadata.BackendName,omitempty"`
-		MetadataRequestMethod          string        `json:"Metadata.RequestMethod,omitempty"`
 		MetadataTimestamp              time.Time     `json:"Metadata.Timestamp,omitempty"`
 		MetadataBackendDuration        time.Duration `json:"Metadata.BackendDuration,omitempty"`
 		MetadataBackendDurationPerItem time.Duration `json:"Metadata.BackendDurationPerItem,omitempty"`
 		MetadataBackendPackage         string        `json:"Metadata.BackendPackage,omitempty"`
+		SourceRequestType              string        `json:"Metadata.SourceRequest.Type,omitempty"`
+		SourceRequestMethod            string        `json:"Metadata.SourceRequest.Method,omitempty"`
+		SourceRequestQuery             string        `json:"Metadata.SourceRequest.Query,omitempty"`
+		SourceRequestLinkDepth         int           `json:"Metadata.SourceRequest.LinkDepth,omitempty"`
+		SourceRequestContext           string        `json:"Metadata.SourceRequest.Context,omitempty"`
+		SourceRequestItemSubject       string        `json:"Metadata.SourceRequest.ItemSubject,omitempty"`
+		SourceRequestResponseSubject   string        `json:"Metadata.SourceRequest.ResponseSubject,omitempty"`
 		Type                           string        `json:"Type,omitempty"`
 		UniqueAttribute                string        `json:"UniqueAttribute,omitempty"`
 		UniqueAttributeValue           string        `json:"UniqueAttributeValue,omitempty"`
@@ -376,11 +420,19 @@ func (i *ItemNode) UnmarshalJSON(value []byte) error {
 	i.GloballyUniqueName = s.GloballyUniqueName
 	i.Metadata = &sdp.Metadata{
 		BackendName:            s.MetadataBackendName,
-		RequestMethod:          sdp.RequestMethod(sdp.RequestMethod_value[s.MetadataRequestMethod]),
 		Timestamp:              timestamppb.New(s.MetadataTimestamp),
 		BackendDuration:        durationpb.New(s.MetadataBackendDuration),
 		BackendDurationPerItem: durationpb.New(s.MetadataBackendDurationPerItem),
 		BackendPackage:         s.MetadataBackendPackage,
+		SourceRequest: &sdp.ItemRequest{
+			Type:            s.SourceRequestType,
+			Method:          sdp.RequestMethod(sdp.RequestMethod_value[s.SourceRequestMethod]),
+			Query:           s.SourceRequestQuery,
+			LinkDepth:       uint32(s.SourceRequestLinkDepth),
+			Context:         s.SourceRequestContext,
+			ItemSubject:     s.SourceRequestItemSubject,
+			ResponseSubject: s.SourceRequestResponseSubject,
+		},
 	}
 
 	i.Type = s.Type
@@ -556,7 +608,7 @@ func QueryItem(d *dgo.Dgraph, globallyUniqueName string) (ItemNode, error) {
 	err = json.Unmarshal(res.GetJson(), &results)
 
 	if len(results["Items"]) > 1 {
-		return result, fmt.Errorf("Found >1 item with the GloballyUniqueName: %v JSON Output:\n%v", globallyUniqueName, string(res.GetJson()))
+		return result, fmt.Errorf("found >1 item with the GloballyUniqueName: %v JSON Output:\n%v", globallyUniqueName, string(res.GetJson()))
 	}
 
 	result = results["Items"][0]
