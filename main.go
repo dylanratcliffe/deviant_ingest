@@ -15,7 +15,7 @@ limitations under the License.
 */
 package main
 
-import "github.com/dylanratcliffe/redacted_dgraph/cmd"
+import "github.com/dylanratcliffe/deviant_ingest/cmd"
 
 func main() {
 	cmd.Execute()

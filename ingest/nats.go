@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dylanratcliffe/sdp.go"
+	"github.com/dylanratcliffe/sdp-go"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
@@ -94,9 +94,8 @@ func MessageToItem(msg *nats.Msg) (*sdp.Item, error) {
 	// deduplicate the items
 	if len(item.GetLinkedItems()) > 0 {
 		var newLinkedItems []*sdp.Reference
-		var newLinkedItemsMap map[string]*sdp.Reference
 
-		newLinkedItemsMap = make(map[string]*sdp.Reference)
+		newLinkedItemsMap := make(map[string]*sdp.Reference)
 
 		// Check that the reference is valid
 		for _, li := range item.GetLinkedItems() {
@@ -169,13 +168,13 @@ func ItemToItemNode(item *sdp.Item) (ItemNode, error) {
 
 	itemNode.Metadata = item.GetMetadata()
 
-	attributesJSON, err = item.GetAttributes().GetAttrStruct().MarshalJSON()
+	attributesJSON, _ = item.GetAttributes().GetAttrStruct().MarshalJSON()
 
 	compactedBuffer := new(bytes.Buffer)
 	err = json.Compact(compactedBuffer, []byte(attributesJSON))
 
 	if err == nil {
-		itemNode.Attributes = string(compactedBuffer.Bytes())
+		itemNode.Attributes = compactedBuffer.String()
 	}
 
 	return itemNode, err

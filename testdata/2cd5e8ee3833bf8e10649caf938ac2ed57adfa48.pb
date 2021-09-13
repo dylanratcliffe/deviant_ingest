@@ -1,9 +1,0 @@
-
-servicenameG
-E
- 
-namecom.apple.PowerUIAgent
-
-state	stopped
-
-enabled "8puppet.service"ÄÜºþ˜Ð«W*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

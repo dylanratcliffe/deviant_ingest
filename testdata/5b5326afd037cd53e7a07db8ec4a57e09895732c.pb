@@ -1,9 +1,0 @@
-
-servicenameB
-@
-
-state	stopped
-
-enabled 
-
-namecom.apple.nfsconf"8puppet.service"ÄÜºþ¸°¢a*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

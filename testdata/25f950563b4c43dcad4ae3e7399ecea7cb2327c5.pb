@@ -1,9 +1,0 @@
-
-servicenameC
-A
-
-namecom.apple.eoshostd
-
-state	stopped
-
-enabled "8puppet.service"ÄÜºþ°‚¢F*ÛšÙÉ2˜£Ï	:puppet*Dylans-MacBook-Pro.local

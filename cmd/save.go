@@ -8,8 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/dylanratcliffe/redacted_dgraph/ingest"
+	"github.com/dylanratcliffe/deviant_ingest/ingest"
 	"github.com/nats-io/nats.go"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -18,7 +19,7 @@ import (
 var saveCmd = &cobra.Command{
 	Use:   "save",
 	Short: "Saves items to disk",
-	Long:  `Saves items from a NATS network to disk for usae later`,
+	Long:  `Saves items from a NATS network to disk for usage later`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Connect to the NATS infrastructure
 		urls := viper.GetStringSlice("nats.urls")
@@ -56,9 +57,16 @@ var saveCmd = &cobra.Command{
 		sub, err := nc.Subscribe(subject, func(msg *nats.Msg) {
 			data := msg.Data
 			filename := fmt.Sprintf("%v/%x.pb", cmd.Flag("out").Value, sha1.Sum(data))
+
+			log.WithFields(log.Fields{
+				"filename": filename,
+			}).Info("writing message to file")
+
 			fmt.Sprintln(filename)
 			if err := ioutil.WriteFile(filename, data, 0644); err != nil {
-				fmt.Sprintln(err)
+				log.WithFields(log.Fields{
+					"error": err,
+				}).Error("write error")
 			}
 		})
 
@@ -78,7 +86,7 @@ func init() {
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:
-	saveCmd.PersistentFlags().String("subject", "items.>", "The NATS subject to listen on")
+	saveCmd.PersistentFlags().String("subject", "return.item.>", "The NATS subject to listen on")
 	saveCmd.PersistentFlags().String("out", "items", "Name of the directory to save files to")
 
 	// Cobra supports local flags which will only run when this command
