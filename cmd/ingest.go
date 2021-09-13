@@ -101,7 +101,7 @@ TODO`,
 		},
 			".",
 		)
-		subject := "items.>"
+		subject := "return.item.>"
 
 		log.WithFields(log.Fields{
 			"subject":   subject,
